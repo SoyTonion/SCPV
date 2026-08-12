@@ -18,7 +18,7 @@ Crea un archivo .env en la raíz (al mismo nivel que package.json) y pega la con
 Fragmento de código
 DATABASE_URL="postgresql://USUARIO:PASSWORD@localhost:5432/NOMBRE_BD?schema=public"
 📦 2. Instalación Manual de Prisma (Versión Estricta)
-Si necesitas instalar Prisma en un entorno nuevo o hubo un problema con npm install, usa estrictamente estos comandos para asegurar la versión 6.19.3 de tu package.json y evitar conflictos de compatibilidad:
+Si necesitas instalar Prisma en un entorno nuevo o hubo un problema con npm install, usa estrictamente estos comandos para asegurar la versión 6.19.3 de tu package.json:
 
 Bash
 # Instalar el CLI de Prisma como dependencia de desarrollo
@@ -50,44 +50,43 @@ Bash
 npm run dev
 El sistema estará corriendo en http://localhost:3000.
 
-📂 5. Arquitectura y Estructura de Carpetas (MUY IMPORTANTE)
+📂 5. Arquitectura y Estructura de Carpetas
+Toda nueva vista, componente, función o endpoint debe respetar la siguiente jerarquía.
 
+Bash
+scpv/
+├── prisma/
+│   ├── schema.prisma   # Modelos y tablas de la BD (Correr migrate/generate si se modifica)
+│   └── seed.ts         # Script para inyectar datos iniciales (roles, catálogos)
+├── src/
+│   ├── actions/        # Server Actions: Funciones asíncronas para mutar datos en BD
+│   ├── components/     # Componentes UI reutilizables (Botones, Modales, Tablas)
+│   ├── lib/            # Utilidades globales e instancia de Prisma (prisma.ts)
+│   └── app/            # App Router (Rutas públicas del sistema)
+│       ├── page.tsx    # Ruta '/' (Login Institucional)
+│       ├── api/        # Endpoints REST solo para consumos externos o móviles
+│       │   └── vehiculos/
+│       │       └── route.ts
+│       ├── dashboard/  # Panel Central (Detrás del Login)
+│       │   ├── layout.tsx  # Layout maestro (Navbar verde, Sidebar)
+│       │   ├── page.tsx    # Vista general ('/dashboard')
+│       │   ├── admin/      # Módulo Administrativo (Usuarios y permisos)
+│       │   ├── pernocta/   # Módulo Tadeo (Vehículos, Asignaciones, Historial)
+│       │   ├── combustible/# Módulo Cargas (Vales, rendimientos, kilometrajes)
+│       │   └── estado/     # Módulo Toni (Inspecciones físicas e inventario)
+│       └── escaner/    # Ruta aislada ('/escaner'). Cámara QR full-screen para Guardia
+├── .env                # Credenciales locales (NO subir a GitHub)
+└── package.json        # Dependencias y scripts del proyecto
+💡 ¿Para qué sirve cada carpeta principal?
+prisma/: Contiene la definición de los modelos de la base de datos (schema.prisma) y los scripts de datos iniciales (seed.ts).
 
-Plaintext
-📦 SCPV
-├── 📁 prisma/             # 🗄️ Todo lo relacionado a la Base de Datos
-│   ├── 📄 schema.prisma   # EL NÚCLEO: Aquí se definen los modelos/tablas de la BD.
-│   └── 📄 seed.ts         # Script para inyectar datos por defecto al inicializar la BD.
-│
-├── 📁 src/
-│   ├── 📁 actions/        # ⚙️ Server Actions: Funciones asíncronas que mutan datos en la BD directamente.
-│   │
-│   ├── 📁 components/     # 🧩 Componentes Reutilizables de UI (Botones, Modales, Tarjetas, Tablas).
-│   │
-│   ├── 📁 lib/            # 🛠️ Utilidades globales (ej. 'prisma.ts' para instanciar la conexión y evitar duplicados).
-│   │
-│   └── 📁 app/            # 🌐 ENRUTADOR (App Router): Las carpetas con un 'page.tsx' son URLs públicas.
-│       │
-│       ├── 📄 page.tsx    # Ruta Raíz ('/'): Pantalla de Login Institucional.
-│       │
-│       ├── 📁 api/        # 🔌 Endpoints REST: Solo para consumos externos o móviles.
-│       │   └── 📁 vehiculos/
-│       │       └── 📄 route.ts # Accesible vía GET/POST en '/api/vehiculos'
-│       │
-│       ├── 📁 dashboard/  # 🟢 Panel Central: Todo lo que está detrás del Login.
-│       │   ├── 📄 layout.tsx  # Layout maestro (Navbar verde, Sidebar).
-│       │   ├── 📄 page.tsx    # Vista general ('/dashboard').
-│       │   │
-│       │   ├── 📁 admin/      # Módulo Administrativo (Usuarios, permisos).
-│       │   ├── 📁 pernocta/   # Módulo Tadeo (Vehículos, Asignaciones, Historial).
-│       │   ├── 📁 combustible/# Módulo de Cargas (Vales, rendimientos, kilometrajes).
-│       │   └── 📁 estado/     # Módulo Toni (Inspecciones físicas e inventario).
-│       │
-│       └── 📁 escaner/    # 📷 Ruta aislada ('/escaner'). Cámara QR full-screen para el Guardia.
-│
-├── 📄 .env                # Credenciales y variables locales (Ignorado por Git).
-└── 📄 package.json        # Dependencias y scripts del sistema.
+src/actions/: Aquí van las funciones del backend que se ejecutan directamente desde los formularios o vistas usando Next.js Server Actions.
 
+src/components/: Piezas de interfaz reutilizables. No deben depender directamente de páginas o rutas específicas.
+
+src/lib/: Archivos de configuración general (como la conexión centralizada a la base de datos con Prisma).
+
+src/app/: Enrutador principal. Cada carpeta con un page.tsx define una ruta accesible en el navegador.
 
 🛠️ 6. Reglas de Desarrollo del Equipo
 Ruteo (page.tsx): En Next.js, las carpetas definen la URL, pero el archivo visual siempre debe llamarse page.tsx.
@@ -96,4 +95,4 @@ Componentes de Cliente ("use client"): Next.js renderiza todo en el servidor por
 
 Server Actions vs API: Prioricen el uso de Server Actions (en src/actions/) para interactuar con la BD desde la UI. La carpeta app/api/ es exclusivamente para endpoints que consumirá un servicio externo (como una app móvil).
 
-Estilos: Usamos Tailwind CSS v4. Eviten crear archivos .css externos. Todo el diseño se maneja mediante clases en los componentes.
+Estilos: Usamos Tailwind CSS v4. Eviten crear archivos .css externos. Todo el diseño se maneja mediante clases utilitarias en los componentes.
