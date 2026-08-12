@@ -1,0 +1,212 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env ("DATABASE_URL")
+}
+
+
+enum TipoPropiedadVehiculo {
+  PROPIO
+  ARRENDADO
+}
+
+enum TipoVehiculo {
+  SED
+  PIK
+  CAM
+  CEE
+  MON
+}
+
+enum TipoCombustible {
+  GASOLINA
+  DIESEL
+}
+
+enum Arrendadora {
+  JETVAN
+  LUMO
+  NA @map("N/A")
+}
+
+enum EstadoRondin {
+  ABIERTO
+  CERRADO
+  CANCELADO
+}
+
+enum TipoIncidencia {
+  PERNOCTA_NO_VERIFICADA
+  QR_DANADO
+  QR_NO_LEIBLE
+  VEHICULO_NO_LOCALIZADO
+  OTRO
+}
+
+enum EstadoIncidencia {
+  ABIERTA
+  EN_PROCESO
+  CERRADA
+}
+
+// ============================================================
+// TABLAS
+// ============================================================
+
+model Departamento {
+  id                 Int      @id @default(autoincrement())
+  nombreDepartamento String   @unique @map("nombre_departamento") @db.VarChar(100)
+  
+  vehiculos          Vehiculo[]
+  usuarios           UsuarioDepartamento[]
+
+  @@map("departamentos")
+}
+
+model Rol {
+  id        Int       @id @default(autoincrement())
+  nombreRol String    @unique @map("nombre_rol") @db.VarChar(50)
+  
+  usuarios  Usuario[]
+
+  @@map("roles")
+}
+
+model Vehiculo {
+  id                 String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  economico          String?               @db.VarChar(50)
+  numeroSerie        String?               @map("numero_serie") @db.VarChar(50)
+  tipoPropiedad      TipoPropiedadVehiculo @default(PROPIO) @map("tipo_propiedad")
+  placas             String?               @db.VarChar(10)
+  
+ 
+  marcaVehiculo      String                @default("CHEVROLET") @map("marca_vehiculo")
+  submarcaVehiculo   String                @default("AVEO") @map("submarca_vehiculo")
+  modelo             Int?
+  tipoVehiculo       TipoVehiculo          @default(SED) @map("tipo_vehiculo")
+  tipoCombustible    TipoCombustible       @default(GASOLINA) @map("tipo_combustible")
+  arrendadora        Arrendadora           @default(NA)
+  campoClasificacion String                @default("|") @map("campo_clasificacion")
+  responsable        String                @default("EDGAR OSWALDO PADILLA LOPEZ")
+  
+  departamentoId     Int?                  @map("departamento_id")
+  vehiculoPernocta   Boolean               @default(true) @map("vehiculo_pernocta")
+  
+  creadoEn           DateTime              @default(now()) @map("creado_en")
+  actualizadoEn      DateTime              @default(now()) @updatedAt @map("actualizado_en")
+
+  // Relaciones
+  departamento       Departamento?         @relation(fields: [departamentoId], references: [id])
+  escaneos           Escaneo[]
+  incidencias        Incidencia[]
+  autorizaciones     AutorizacionPernocta[]
+
+  @@map("vehiculos")
+}
+
+model Usuario {
+  id             Int      @id @default(autoincrement())
+  nombre         String   @db.VarChar(100)
+  telefono       String?  @db.VarChar(20)
+  email          String?  @db.VarChar(100)
+  usuario        String   @unique @db.VarChar(50)
+  passwordHash   String   @map("password_hash")
+  rolId          Int      @map("rol_id")
+  activo         Boolean  @default(true)
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  // Relaciones
+  rol            Rol                   @relation(fields: [rolId], references: [id])
+  departamentos  UsuarioDepartamento[]
+  rondines       Rondin[]
+  incidencias    Incidencia[]          @relation("IncidenciasResueltas")
+  autorizaciones AutorizacionPernocta[] @relation("AutorizadasPor")
+
+  @@map("usuarios")
+}
+
+// Tabla pivote para la relación Muchos-a-Muchos entre Usuarios y Departamentos
+model UsuarioDepartamento {
+  usuarioId      Int      @map("usuario_id")
+  departamentoId Int      @map("departamento_id")
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  usuario        Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  departamento   Departamento @relation(fields: [departamentoId], references: [id], onDelete: Cascade)
+
+  @@id([usuarioId, departamentoId])
+  @@map("usuarios_departamentos")
+}
+
+model Rondin {
+  id        BigInt       @id @default(autoincrement())
+  fecha     DateTime     @db.Date
+  guardiaId Int          @map("guardia_id")
+  inicio    DateTime     @default(now())
+  fin       DateTime?
+  estado    EstadoRondin @default(ABIERTO)
+
+  // Relaciones
+  guardia   Usuario   @relation(fields: [guardiaId], references: [id])
+  escaneos  Escaneo[]
+
+  @@map("rondines")
+}
+
+model Escaneo {
+  id          BigInt   @id @default(autoincrement())
+  rondinId    BigInt   @map("rondin_id")
+  vehiculoId  String   @map("vehiculo_id") @db.Uuid
+  fechaHora   DateTime @default(now()) @map("fecha_hora")
+  dispositivo String?  @db.VarChar(100)
+
+  // Relaciones
+  rondin   Rondin   @relation(fields: [rondinId], references: [id], onDelete: Cascade)
+  vehiculo Vehiculo @relation(fields: [vehiculoId], references: [id])
+
+  @@map("escaneos")
+}
+
+model Incidencia {
+  id           BigInt           @id @default(autoincrement())
+  vehiculoId   String           @map("vehiculo_id") @db.Uuid
+  fecha        DateTime         @db.Date
+  tipo         TipoIncidencia
+  estado       EstadoIncidencia @default(ABIERTA)
+  descripcion  String?          @db.Text
+  creadaEn     DateTime         @default(now()) @map("creada_en")
+  resueltaPor  Int?             @map("resuelta_por")
+  resueltaEn   DateTime?        @map("resuelta_en")
+
+  // Relaciones
+  vehiculo     Vehiculo @relation(fields: [vehiculoId], references: [id])
+  usuario      Usuario? @relation("IncidenciasResueltas", fields: [resueltaPor], references: [id])
+
+  @@map("incidencias")
+}
+
+model AutorizacionPernocta {
+  id            BigInt   @id @default(autoincrement())
+  vehiculoId    String   @map("vehiculo_id") @db.Uuid
+  fechaInicio   DateTime @map("fecha_inicio") @db.Date
+  fechaFin      DateTime @map("fecha_fin") @db.Date
+  motivo        String?  @db.Text
+  autorizadoPor Int      @map("autorizado_por")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+
+  // Relaciones
+  vehiculo      Vehiculo @relation(fields: [vehiculoId], references: [id])
+  usuario       Usuario  @relation("AutorizadasPor", fields: [autorizadoPor], references: [id])
+
+  @@map("autorizaciones_pernocta")
+}
+
+model Configuracion {
+  clave String @id @db.VarChar(100)
+  valor String @db.VarChar(255)
+
+  @@map("configuracion")
+}
