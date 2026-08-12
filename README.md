@@ -26,7 +26,7 @@ Construido con tecnologías modernas y una arquitectura orientada a mantener el 
 ### 📥 Clonar el repositorio
 
 ```bash
-git clone [URL_DEL_REPO]
+git clone https://github.com/SoyTonion/SCPV.git
 cd scpv
 ```
 
