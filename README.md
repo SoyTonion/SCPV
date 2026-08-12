@@ -1,99 +1,412 @@
-Entiendo perfectamente. Los "árboles" de carpetas hechos con texto dentro de bloques de código a veces se descuadran en GitHub dependiendo de la fuente del navegador o si lo abren en celular.
+# ⚡ Sistema Integral Vehicular CFE · SCPV
 
-Para que se vea impecable, moderno y nativo en GitHub, lo mejor es usar Listas Anidadas de Markdown con Emojis. Esto hace que GitHub lo renderice con su propio sistema de espaciado y se vea como una documentación profesional.
+> **Sistema Integral de Control y Gestión Vehicular para CFE**
 
-Aquí tienes el README con esta nueva estructura. Simplemente cópialo y pégalo:
+Aplicación web desarrollada para la **gestión, control y seguimiento de vehículos institucionales**, incluyendo pernocta, combustible, inspecciones, inventario y administración de usuarios.
 
-⚡ Sistema Integral Vehicular CFE (SCPV)
-Proyecto construido con Next.js (App Router), Tailwind CSS, Prisma ORM y PostgreSQL.
-Este documento sirve como guía rápida de comandos y mapa de arquitectura para el equipo de desarrollo.
+Construido con tecnologías modernas y una arquitectura orientada a mantener el sistema **modular, escalable y fácil de mantener**.
 
-🚀 1. Setup Inicial (Levantar el proyecto)
-Bash
-# 1. Clonar el repositorio
+---
+
+## 🧰 Stack Tecnológico
+
+| Tecnología          | Uso                              |
+| ------------------- | -------------------------------- |
+| ⚛️ **Next.js**      | Framework principal · App Router |
+| 🎨 **Tailwind CSS** | Interfaz y estilos               |
+| 🟦 **TypeScript**   | Tipado y desarrollo seguro       |
+| 🔷 **Prisma ORM**   | Acceso y gestión de datos        |
+| 🐘 **PostgreSQL**   | Base de datos                    |
+| 🟢 **Node.js**      | Entorno de ejecución             |
+
+---
+
+# 🚀 1. Instalación
+
+### 📥 Clonar el repositorio
+
+```bash
 git clone [URL_DEL_REPO]
 cd scpv
+```
 
-# 2. Instalar TODAS las dependencias (respetará el package.json)
+### 📦 Instalar dependencias
+
+```bash
 npm install
-Variables de Entorno: Crea un archivo .env en la raíz y pega la conexión a tu PostgreSQL local:
+```
+
+> **Importante:** `npm install` utilizará las versiones especificadas en `package.json`.
+
+### 🔐 Variables de entorno
+
+Crea un archivo `.env` en la raíz del proyecto:
+
+```env
 DATABASE_URL="postgresql://USUARIO:PASSWORD@localhost:5432/NOMBRE_BD?schema=public"
+```
 
-📦 2. Instalación Manual de Prisma (Versión Estricta)
-Si necesitas instalar Prisma en un entorno nuevo, usa estrictamente estos comandos para asegurar la versión 6.19.3 de nuestro package.json:
+> ⚠️ **Nunca subas `.env` al repositorio.**
+> Este archivo contiene credenciales y configuraciones privadas.
 
-Bash
+---
+
+# 📦 2. Prisma
+
+El proyecto utiliza **Prisma 6.19.3**.
+
+Si necesitas realizar una instalación manual:
+
+```bash
 npm install prisma@6.19.3 --save-dev
 npm install @prisma/client@6.19.3
-🗄️ 3. Base de Datos & ORM (Cheat Sheet)
-Bash
-# Inicializar Prisma (Solo si no existe la carpeta prisma/)
-npx prisma init
+```
 
-# Sincronizar tu BD local con el esquema y crear migración (Correr al modificar schema.prisma)
+### 🗄️ Comandos principales
+
+| Comando                                | Función                          |
+| -------------------------------------- | -------------------------------- |
+| `npx prisma init`                      | Inicializa Prisma                |
+| `npx prisma migrate dev --name nombre` | Crea y aplica una migración      |
+| `npx prisma generate`                  | Genera Prisma Client             |
+| `npx prisma db seed`                   | Ejecuta los datos iniciales      |
+| `npx prisma studio`                    | Abre la interfaz visual de la BD |
+
+### ✏️ Después de modificar `schema.prisma`
+
+```bash
 npx prisma migrate dev --name descripcion_del_cambio
+```
 
-# Generar el cliente (OBLIGATORIO después de un 'git pull' con cambios en BD)
+Si únicamente necesitas regenerar el cliente:
+
+```bash
+npx prisma generate
+```
+
+---
+
+# 🖥️ 3. Ejecutar el proyecto
+
+Inicia el servidor de desarrollo:
+
+```bash
+npm run dev
+```
+
+Después abre:
+
+**http://localhost:3000**
+
+---
+
+# 🗂️ 4. Arquitectura del Proyecto
+
+La estructura principal del proyecto está organizada de la siguiente manera:
+
+* 📁 **`prisma/`**
+
+  * 🗄️ `schema.prisma` → Modelos y estructura de la base de datos.
+  * 🌱 `seed.ts` → Datos iniciales y catálogos.
+
+* 📁 **`src/`**
+
+  * ⚙️ **`actions/`** → Server Actions para operaciones con la BD.
+  * 🧩 **`components/`** → Componentes reutilizables de interfaz.
+  * 🛠️ **`lib/`** → Configuraciones y utilidades globales.
+  * 🌐 **`app/`** → Sistema de rutas mediante Next.js App Router.
+
+    * 📄 `page.tsx` → **Login institucional** (`/`)
+
+    * 📁 **`api/`**
+
+      * 🔌 Endpoints REST destinados principalmente a aplicaciones móviles o servicios externos.
+
+    * 📁 **`dashboard/`**
+
+      * 🟢 Panel principal del sistema.
+
+      * 📄 `layout.tsx` → Layout general, Navbar y Sidebar.
+
+      * 📄 `page.tsx` → Página principal del Dashboard.
+
+      * 📁 **`admin/`**
+
+        * 👤 Gestión de usuarios.
+        * 🔐 Roles y permisos.
+
+      * 📁 **`pernocta/`**
+
+        * 🚗 Vehículos.
+        * 📋 Asignaciones.
+        * 🕘 Historial de pernoctas.
+
+      * 📁 **`combustible/`**
+
+        * ⛽ Cargas.
+        * 🎫 Vales.
+        * 📊 Rendimientos.
+        * 🧭 Kilometrajes.
+
+      * 📁 **`estado/`**
+
+        * 🔎 Inspecciones físicas.
+        * 📦 Inventario vehicular.
+
+    * 📁 **`escaner/`**
+
+      * 📷 Lector QR.
+      * 🛡️ Interfaz destinada a los guardias.
+      * 📱 Vista optimizada para pantalla completa.
+
+* 📄 **`.env`**
+
+  * 🔐 Variables y credenciales locales.
+  * 🚫 **No debe subirse a GitHub.**
+
+* 📄 **`package.json`**
+
+  * 📦 Dependencias y scripts del proyecto.
+
+---
+
+# 🧭 5. Flujo General del Sistema
+
+```text
+                    ┌─────────────────────┐
+                    │     LOGIN CFE       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │      DASHBOARD      │
+                    └──────────┬──────────┘
+                               │
+            ┌──────────────────┼──────────────────┐
+            ▼                  ▼                  ▼
+      ┌───────────┐      ┌────────────┐     ┌───────────┐
+      │ Pernocta  │      │Combustible │     │   Estado  │
+      └───────────┘      └────────────┘     └───────────┘
+            │                  │                  │
+            └──────────────────┼──────────────────┘
+                               ▼
+                    ┌─────────────────────┐
+                    │      PRISMA ORM     │
+                    └──────────┬──────────┘
+                               ▼
+                    ┌─────────────────────┐
+                    │     POSTGRESQL      │
+                    └─────────────────────┘
+```
+
+---
+
+# 🛠️ 6. Reglas de Desarrollo
+
+### 01 · Rutas
+
+En Next.js, las carpetas determinan las rutas.
+
+El archivo que renderiza cada página debe llamarse:
+
+```text
+page.tsx
+```
+
+Ejemplo:
+
+```text
+app/
+└── dashboard/
+    └── page.tsx
+```
+
+Esto genera:
+
+```text
+/dashboard
+```
+
+---
+
+### 02 · Componentes de Cliente
+
+Next.js utiliza Server Components por defecto.
+
+Si un componente utiliza:
+
+* `useState`
+* `useEffect`
+* `onClick`
+* Eventos del navegador
+* APIs del navegador
+
+debe utilizar:
+
+```tsx
+"use client";
+```
+
+---
+
+### 03 · Server Actions vs API
+
+Priorizar:
+
+```text
+src/actions/
+```
+
+para operaciones internas de la aplicación y acceso a la base de datos.
+
+La carpeta:
+
+```text
+src/app/api/
+```
+
+queda principalmente destinada a:
+
+* 📱 Aplicaciones móviles
+* 🔌 Servicios externos
+* 🌐 Integraciones que requieran endpoints HTTP
+
+---
+
+### 04 · Estilos
+
+El proyecto utiliza **Tailwind CSS**.
+
+Los estilos deben manejarse mediante clases utilitarias:
+
+```tsx
+<div className="flex items-center justify-between">
+```
+
+Evitar crear archivos `.css` externos salvo que exista una necesidad técnica justificada.
+
+---
+
+### 05 · Prisma
+
+Después de modificar:
+
+```text
+prisma/schema.prisma
+```
+
+se debe crear una migración:
+
+```bash
+npx prisma migrate dev --name descripcion_del_cambio
+```
+
+Y después de obtener cambios del repositorio que involucren Prisma:
+
+```bash
+npx prisma generate
+```
+
+---
+
+# 👥 7. Módulos del Sistema
+
+| Módulo                | Función                             |
+| --------------------- | ----------------------------------- |
+| 🔐 **Administración** | Usuarios, roles y permisos          |
+| 🚗 **Pernocta**       | Vehículos, asignaciones e historial |
+| ⛽ **Combustible**     | Vales, cargas y rendimientos        |
+| 🔎 **Estado**         | Inspecciones e inventario           |
+| 📷 **Escáner**        | Lectura de códigos QR               |
+| 📊 **Dashboard**      | Información general y métricas      |
+
+---
+
+# ⚡ 8. Comandos Rápidos
+
+### Desarrollo
+
+```bash
+npm run dev
+```
+
+### Compilar
+
+```bash
+npm run build
+```
+
+### Ejecutar producción
+
+```bash
+npm start
+```
+
+### Prisma
+
+```bash
+npx prisma studio
+```
+
+```bash
+npx prisma generate
+```
+
+```bash
+npx prisma migrate dev --name cambio
+```
+
+---
+
+# 🔒 9. Seguridad
+
+### Nunca subir al repositorio:
+
+```text
+.env
+.env.local
+.env.production
+```
+
+Las credenciales, contraseñas y cadenas de conexión deben permanecer únicamente en variables de entorno.
+
+---
+
+# 📌 10. Notas para el Equipo
+
+Antes de realizar cambios importantes:
+
+1. 🔄 Actualizar el repositorio.
+2. 📦 Instalar dependencias si hubo modificaciones.
+3. 🗄️ Revisar cambios en Prisma.
+4. 🧪 Probar localmente.
+5. 🔍 Verificar que no existan errores.
+6. 📤 Realizar el commit.
+7. 🚀 Subir los cambios.
+
+### Flujo recomendado
+
+```bash
+git pull
+npm install
+
 npx prisma generate
 
-# Poblar la BD con los datos iniciales (Seeders)
-npx prisma db seed
-
-# Abrir la interfaz gráfica para ver/editar la BD en el navegador
-npx prisma studio
-🖥️ 4. Iniciar el Servidor
-Bash
 npm run dev
-El sistema estará corriendo en http://localhost:3000.
+```
 
-📂 5. Arquitectura y Estructura de Carpetas
-Toda nueva vista, componente o endpoint debe respetar la siguiente jerarquía.
+Después de comprobar los cambios:
 
-📁 prisma/ — 🗄️ Base de Datos
+```bash
+git add .
+git commit -m "descripcion del cambio"
+git push
+```
 
-📄 schema.prisma: El núcleo. Aquí definimos los modelos/tablas. (Si lo modificas, avisa y corre migrate).
+---
 
-📄 seed.ts: Script para inyectar datos iniciales (roles, catálogos) al levantar el proyecto.
+## 🏢 Sistema Integral Vehicular CFE
 
-📁 src/ — 💻 Código fuente de la aplicación
+**SCPV · Sistema de Control y Gestión Vehicular**
 
-📁 actions/: ⚙️ Server Actions. Funciones backend que mutan datos en BD directamente desde la UI.
-
-📁 components/: 🧩 Componentes UI. Piezas reutilizables (Botones, Modales, Tablas) que no están atadas a una vista.
-
-📁 lib/: 🛠️ Utilidades. Configuraciones globales (ej. prisma.ts para instanciar la conexión y evitar duplicados).
-
-📁 app/: 🌐 Enrutador (App Router). Cada carpeta aquí que tenga un page.tsx es una URL pública.
-
-📄 page.tsx: Ruta Raíz (/) — Login Institucional.
-
-📁 api/: 🔌 Endpoints REST. Solo para consumos de apps móviles o servicios externos.
-
-📁 dashboard/: 🟢 Panel Central. (Todo lo que requiere haber iniciado sesión).
-
-📄 layout.tsx: Layout maestro (Navbar verde, Sidebar).
-
-📄 page.tsx: Vista de bienvenida al entrar al dashboard.
-
-📁 admin/: Módulo para gestión de usuarios y permisos.
-
-📁 pernocta/: Módulo Tadeo (Vehículos, Asignaciones, Historial).
-
-📁 combustible/: Módulo de Cargas (Vales, rendimientos, kilometrajes).
-
-📁 estado/: Módulo Toni (Inspecciones físicas e inventario).
-
-📁 escaner/: 📷 Ruta aislada (/escaner). Cámara QR full-screen para los Guardias.
-
-📄 .env — Credenciales locales (NO SE SUBE A GITHUB).
-
-📄 package.json — Control de versiones y dependencias.
-
-🛠️ 6. Reglas de Desarrollo del Equipo
-Ruteo (page.tsx): En Next.js, las carpetas definen la URL, pero el archivo que renderiza la vista siempre debe llamarse page.tsx.
-
-Componentes de Cliente ("use client"): Por defecto, Next.js renderiza todo en el servidor. Si tu componente usa interactividad (useState, useEffect, onClick), debes poner "use client"; en la línea 1.
-
-Server Actions vs API: Prioricen usar Server Actions (src/actions/) para interactuar con la BD. La carpeta app/api/ déjenla solo para la app móvil.
-
-Estilos (Tailwind CSS v4): Prohibido crear archivos .css externos. Todo el diseño se maneja con clases utilitarias de Tailwind en el mismo componente.
+> 💻 Desarrollo orientado a la digitalización y optimización de procesos vehiculares institucionales.
