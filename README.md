@@ -43,7 +43,7 @@ npm install
 Crea un archivo `.env` en la raíz del proyecto:
 
 ```env
-DATABASE_URL="postgresql://USUARIO:PASSWORD@localhost:5432/Control_Parque_Vehicular?schema=public"
+DATABASE_URL="postgresql://USUARIO:PASSWORD@localhost:5432/control_parque_vehicular?schema=public"
 ```
 
 > ⚠️ **Nunca subas `.env` al repositorio.**
