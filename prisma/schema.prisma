@@ -39,10 +39,23 @@ enum EstadoRondin {
 }
 
 enum TipoIncidencia {
+
+  // -- Incidencias de Rondines --
   PERNOCTA_NO_VERIFICADA
   QR_DANADO
   QR_NO_LEIBLE
   VEHICULO_NO_LOCALIZADO
+
+  // -- Incidencias de Condiciones Fisicas --
+  LOGO_AUSENTE
+  LOGO_BORROSO
+  CALCOMANIA_DANADA
+  NUMERO_ECONOMICO_ILEGIBLE
+  FARO_DANADO
+  ESPEJO_DANADO
+  DEFENSA_DANADA
+  CONDICION_FISICA_CRITICA
+
   OTRO
 }
 
@@ -50,6 +63,49 @@ enum EstadoIncidencia {
   ABIERTA
   EN_PROCESO
   CERRADA
+}
+
+enum VistaVehiculo {
+  FRONTAL
+  TRASERA
+  LATERAL_IZQUIERDA
+  LATERAL_DERECHA
+  INTERIOR
+}
+
+enum EstadoInspeccion {
+  NORMAL
+  ADVERTENCIA
+  CRITICO
+}
+
+enum TipoInspeccion {
+  RUTINA
+  EXTRAORDINARIA
+  POST_MANTENIMIENTO
+}
+
+enum ComponenteVehiculo {
+  LOGO_FRONTAL
+  LOGO_TRASERO
+  CALCOMANIA
+  NUMERO_ECONOMICO
+  FARO_IZQUIERDO
+  FARO_DERECHO
+  ESPEJO_IZQUIERDO
+  ESPEJO_DERECHO
+  DEFENSA
+  PUERTA
+  OTRO
+}
+
+enum TipoHallazgo {
+  AUSENTE
+  BORROSO
+  DETERIORADO
+  DEFORMADO
+  DIFERENCIA_VISUAL
+  BAJA_SIMILITUD
 }
 
 // ============================================================
@@ -103,6 +159,8 @@ model Vehiculo {
   escaneos           Escaneo[]
   incidencias        Incidencia[]
   autorizaciones     AutorizacionPernocta[]
+  imagenesPatron   ImagenPatron[]
+  inspecciones     InspeccionFisica[]
 
   @@map("vehiculos")
 }
@@ -118,12 +176,13 @@ model Usuario {
   activo         Boolean  @default(true)
   creadoEn       DateTime @default(now()) @map("creado_en")
 
-  // Relaciones
-  rol            Rol                   @relation(fields: [rolId], references: [id])
-  departamentos  UsuarioDepartamento[]
-  rondines       Rondin[]
-  incidencias    Incidencia[]          @relation("IncidenciasResueltas")
-  autorizaciones AutorizacionPernocta[] @relation("AutorizadasPor")
+  rol                   Rol                    @relation(fields: [rolId], references: [id])
+  departamentos         UsuarioDepartamento[]
+  rondines              Rondin[]
+  incidencias           Incidencia[]           @relation("IncidenciasResueltas")
+  autorizaciones        AutorizacionPernocta[] @relation("AutorizadasPor")
+  inspeccionesRealizadas InspeccionFisica[]
+  imagenesPatronCreadas ImagenPatron[]         @relation("ImagenesPatronCreadas")
 
   @@map("usuarios")
 }
@@ -209,4 +268,71 @@ model Configuracion {
   valor String @db.VarChar(255)
 
   @@map("configuracion")
+}
+
+model ImagenPatron {
+  id         BigInt    @id @default(autoincrement())
+  vehiculoId String    @map("vehiculo_id") @db.Uuid
+  vista      VistaVehiculo
+  rutaImagen String    @map("ruta_imagen") @db.VarChar(255)
+  hashImagen String?   @map("hash_imagen") @db.VarChar(128)
+  activo     Boolean   @default(true)
+  creadoEn   DateTime  @default(now()) @map("creado_en")
+  creadoPor  Int?      @map("creado_por")
+
+  vehiculo   Vehiculo  @relation(fields: [vehiculoId], references: [id])
+  usuario    Usuario?  @relation("ImagenesPatronCreadas", fields: [creadoPor], references: [id])
+
+  @@unique([vehiculoId, vista, activo])
+  @@map("imagenes_patron")
+}
+
+model InspeccionFisica {
+  id               BigInt             @id @default(autoincrement())
+  vehiculoId        String             @map("vehiculo_id") @db.Uuid
+  inspectorId       Int                @map("inspector_id")
+  fechaHora         DateTime           @default(now()) @map("fecha_hora")
+  tipo              TipoInspeccion     @default(RUTINA)
+  estadoGeneral     EstadoInspeccion   @default(NORMAL) @map("estado_general")
+  puntaje           Decimal?           @db.Decimal(5,2)
+  observaciones     String?            @db.Text
+  procesada         Boolean            @default(false)
+
+  vehiculo          Vehiculo           @relation(fields: [vehiculoId], references: [id])
+  inspector         Usuario            @relation(fields: [inspectorId], references: [id])
+
+  fotografias       FotografiaInspeccion[]
+  hallazgos         HallazgoInspeccion[]
+
+  @@map("inspecciones_fisicas")
+}
+
+model FotografiaInspeccion {
+  id             BigInt         @id @default(autoincrement())
+  inspeccionId   BigInt         @map("inspeccion_id")
+  vista          VistaVehiculo
+  rutaImagen     String         @map("ruta_imagen") @db.VarChar(255)
+  hashImagen     String?        @map("hash_imagen") @db.VarChar(128)
+  creadaEn       DateTime       @default(now()) @map("creada_en")
+
+  inspeccion     InspeccionFisica @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
+
+  @@unique([inspeccionId, vista])
+  @@map("fotografias_inspeccion")
+}
+
+model HallazgoInspeccion {
+  id                 BigInt             @id @default(autoincrement())
+  inspeccionId        BigInt             @map("inspeccion_id")
+  componente          ComponenteVehiculo
+  tipo                TipoHallazgo
+  confianza           Decimal            @db.Decimal(5,2)
+  similitud           Decimal?           @db.Decimal(5,2)
+  rutaRecorte         String?            @map("ruta_recorte") @db.VarChar(255)
+  descripcion         String?            @db.Text
+  creadoEn            DateTime           @default(now()) @map("creado_en")
+
+  inspeccion          InspeccionFisica   @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
+
+  @@map("hallazgos_inspeccion")
 }
