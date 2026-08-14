@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { getUsuarios } from './actions'
+import { getUsuarios, deleteUsuario } from './actions'
 
 export default async function UsuariosPage({
   searchParams,
@@ -11,20 +11,27 @@ export default async function UsuariosPage({
 
   return (
     <main className="p-8 max-w-7xl mx-auto space-y-6">
-      {/* Header */}
+      {/* Header & Botón Nuevo */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <Link
             href="/dashboard"
-            className="text-sm font-medium text-slate-500 hover:text-[#145c2c] transition-colors mb-2 inline-block"
+            className="text-sm font-medium text-slate-500 hover:text-purple-600 transition-colors mb-2 inline-block"
           >
             ← Volver al Dashboard Central
           </Link>
-          <h1 className="text-2xl font-bold text-[#145c2c]">Gestión de Usuarios</h1>
+          <h1 className="text-2xl font-bold text-emerald-700">Gestión de Usuarios</h1>
           <p className="text-slate-500 text-sm">
-            Listado de usuarios registrados en el sistema.
+            Listado y administración de usuarios del sistema.
           </p>
         </div>
+
+        <Link
+          href="/dashboard/usuarios/nuevo"
+          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors text-center inline-flex items-center justify-center gap-2"
+        >
+          <span>+</span> Nuevo Usuario
+        </Link>
       </div>
 
       {/* Buscador */}
@@ -35,7 +42,7 @@ export default async function UsuariosPage({
             name="q"
             defaultValue={query}
             placeholder="Buscar por nombre, usuario o correo..."
-            className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-[#145c2c] text-sm text-slate-800 placeholder-slate-400"
+            className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600 text-sm text-slate-800 placeholder-slate-400"
           />
           <button
             type="submit"
@@ -57,12 +64,13 @@ export default async function UsuariosPage({
                 <th className="p-4">Teléfono / Email</th>
                 <th className="p-4">Rol</th>
                 <th className="p-4 text-center">Estatus</th>
+                <th className="p-4 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {usuarios?.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-slate-400">
+                  <td colSpan={6} className="p-8 text-center text-slate-400">
                     No se encontraron usuarios registrados.
                   </td>
                 </tr>
@@ -79,9 +87,9 @@ export default async function UsuariosPage({
                       <div className="text-xs text-slate-400">{u.telefono || 'Sin teléfono'}</div>
                     </td>
                     <td className="p-4">
-                      <span className="bg-purple-50 text-purple-700 border border-purple-200 text-xs px-2.5 py-1 rounded-md font-medium inline-block">
-                        {u.rol?.nombre || `Rol ID: ${u.rolId || u.rol_id}`}
-                      </span>
+                        <span className="bg-purple-50 text-purple-700 border border-purple-200 text-xs px-2.5 py-1 rounded-md font-medium inline-block">
+                            {u.rol?.nombreRol || u.rol?.nombre || `Rol ID: ${u.rolId || u.rol_id}`}
+                        </span>
                     </td>
                     <td className="p-4 text-center">
                       <span
@@ -93,6 +101,28 @@ export default async function UsuariosPage({
                       >
                         {u.activo ? '● Activo' : '○ Inactivo'}
                       </span>
+                    </td>
+                    <td className="p-4 text-right space-x-3">
+                      <Link
+                        href={`/dashboard/usuarios/${u.id}`}
+                        className="text-xs font-semibold text-purple-600 hover:underline"
+                      >
+                        Editar
+                      </Link>
+                      <form
+                        action={async () => {
+                          'use server'
+                          await deleteUsuario(u.id)
+                        }}
+                        className="inline-block"
+                      >
+                        <button
+                          type="submit"
+                          className="text-xs font-semibold text-rose-600 hover:underline"
+                        >
+                          Eliminar
+                        </button>
+                      </form>
                     </td>
                   </tr>
                 ))
