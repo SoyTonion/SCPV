@@ -1,17 +1,37 @@
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from 'src/lib/auth';
 import Link from 'next/link';
-import { Car, Check, CircleAlert, X } from 'lucide-react';
+import { Flag, Car, Check, CircleAlert, X } from 'lucide-react';
+
+const ROLES_PERMITIDOS = ['ADMINISTRADOR', 'JEFE'];
 
 export default function estadoIndex() {
+  
+  const session = await getServerSession(authOptions);
+
+  if (!session) redirect('/login');
+  if (!ROLES_PERMITIDOS.includes(session.user.rol)) redirect('/dashboard');
+
   return (
     <main className="min-h-screen bg-slate-100 p-8">
       <div className="max-w-5xl mx-auto">
-        <header className="mb-10 text-center md:text-left">
-          <h1 className="text-3xl font-bold text-slate-800">Estado físico del Parque Vehicular</h1>
-          <p className="text-slate-500 mt-2">Resumen operativo de inspecciones, alertas y condiciones físicas de los vehículos.</p>
-        </header> 
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <Link
+            href="/dashboard"
+            className="text-sm font-medium text-slate-500 hover:text-[#145c2c] transition-colors mb-2 inline-block">
+            ← Volver al Dashboard Central
+          </Link>
+          <h1 className="text-2xl font-bold text-[#145c2c]">Estado físico del Parque Vehicular</h1>
+          <p className="text-slate-500 text-sm">
+            Resumen operativo de inspecciones, alertas y condiciones físicas de los vehículos.
+          </p>
+        </div>
+      </div>
 
         {/* Contenedor de las 3 tarjetas */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-8">
           
        
           <Link href="/dashboard/estado/vehiculos" className="group block bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-gray-400 transition-all w-57 h-52">
@@ -19,7 +39,7 @@ export default function estadoIndex() {
               <Car/>
             </div>
             <h2 className="text-xl font-semibold text-slate-700 mb-2"> Vehículos inspeccionados </h2>
-            <h3 className="text-2xl text-slate-500 font-bold">137</h3>
+            <h3 className="text-xl text-slate-500 font-bold">137</h3>
           </Link>
 
        
@@ -47,6 +67,14 @@ export default function estadoIndex() {
             </div>
               <h2 className="text-xl font-semibold text-slate-700 mb-1">Críticos</h2>
               <h3 className="text-2xl font-bold text-slate-500">5</h3>
+          </Link>
+
+          <Link href="/dashboard/estado/reportes" className="group block bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-orange-400 transition-all w-80">
+            <div className="h-12 w-12 bg-orange-100 text-orange-600 rounded-lg flex items-center justify-center mb-4 text-xl font-bold group-hover:bg-orange-600 group-hover:text-white transition-colors">
+              <Flag/>
+            </div>
+            <h2 className="text-xl font-semibold text-slate-700 mb-2">Reportes</h2>
+            <p className="text-sm text-slate-500">Generación y visualización de reportes de inspección y mantenimiento físico de los vehículos.</p>
           </Link>
 
         </div>
