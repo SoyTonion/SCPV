@@ -1,6 +1,16 @@
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from "@/lib/auth";
 import Link from 'next/link';
 
-export default function PernoctaIndex() {
+const ROLES_PERMITIDOS = [ 1 ];
+
+export default async function PernoctaIndex() {
+    const session = await getServerSession(authOptions);
+  
+    if (!session) redirect('/');
+    if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
+
   return (
     <main className="p-8 max-w-6xl mx-auto">
       <div className="mb-8">

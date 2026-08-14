@@ -1,17 +1,16 @@
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
-import { authOptions } from 'src/lib/auth';
+import { authOptions } from "@/lib/auth";
 import Link from 'next/link';
 import { Flag, Car, Check, CircleAlert, X } from 'lucide-react';
 
-const ROLES_PERMITIDOS = ['ADMINISTRADOR', 'JEFE'];
+const ROLES_PERMITIDOS = [ 1 ];
 
-export default function estadoIndex() {
-  
+export default async function estadoIndex() {
   const session = await getServerSession(authOptions);
 
-  if (!session) redirect('/login');
-  if (!ROLES_PERMITIDOS.includes(session.user.rol)) redirect('/dashboard');
+  if (!session) redirect('/');
+  if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
 
   return (
     <main className="min-h-screen bg-slate-100 p-8">

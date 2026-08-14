@@ -1,11 +1,21 @@
-import Link from 'next/link'
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from "@/lib/auth";
+import Link from 'next/link';
 import { getUsuarios, deleteUsuario } from './actions'
+
+const ROLES_PERMITIDOS = [ 1 ];
 
 export default async function UsuariosPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string }>
 }) {
+  const session = await getServerSession(authOptions);
+
+  if (!session) redirect('/');
+  if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
+  
   const query = (await searchParams)?.q || ''
   const { data: usuarios = [] } = await getUsuarios(query)
 
