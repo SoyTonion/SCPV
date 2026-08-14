@@ -1,5 +1,3 @@
-Sí, ahora sí vamos a dejarlo **con la carne necesaria y sin repetir el mismo dato cinco veces** 😂. Mantengo toda la información importante, pero cada cosa vive en una sola sección. También dejo la arquitectura con listas para que no se rompa visualmente.
-
 # ⚡ Sistema Integral Vehicular CFE · SCPV
 
 > **Sistema de Control y Gestión Vehicular para CFE**
