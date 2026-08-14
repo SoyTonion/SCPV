@@ -283,6 +283,9 @@ model Configuracion {
   @@map("configuracion")
 }
 
+// ============================================================
+// MÓDULO DE CONDICIONES FÍSICAS
+// ============================================================
 model ImagenPatron {
   id         BigInt        @id @default(autoincrement())
   vehiculoId String        @map("vehiculo_id") @db.Uuid
