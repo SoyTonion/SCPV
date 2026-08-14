@@ -1,247 +1,273 @@
 # ⚡ Sistema Integral Vehicular CFE · SCPV
 
-> **Sistema Integral de Control y Gestión Vehicular para CFE**
+> **Sistema de Control y Gestión Vehicular para CFE**
 
-Aplicación web desarrollada para la **gestión, control y seguimiento de vehículos institucionales**, incluyendo pernocta, combustible, inspecciones, inventario y administración de usuarios.
+Aplicación web para la **gestión, control y seguimiento del parque vehicular institucional**, centralizando procesos de pernocta, combustible, inspecciones, inventario y administración de usuarios.
 
-Construido con tecnologías modernas y una arquitectura orientada a mantener el sistema **modular, escalable y fácil de mantener**.
+Desarrollado con una arquitectura modular orientada a la **escalabilidad, mantenibilidad y colaboración del equipo**.
 
 ---
 
-## 🧰 Stack Tecnológico
+## 📑 Contenido
+
+* [🧰 Tecnologías](#-tecnologías)
+* [🚀 Instalación](#-instalación)
+* [📦 Prisma ORM](#-prisma-orm)
+* [🗂️ Arquitectura](#️-arquitectura)
+* [🧭 Flujo del sistema](#-flujo-del-sistema)
+* [🧩 Módulos](#-módulos)
+* [🛠️ Reglas de desarrollo](#️-reglas-de-desarrollo)
+* [🔒 Seguridad](#-seguridad)
+* [👥 Flujo de trabajo](#-flujo-de-trabajo)
+* [⚡ Comandos rápidos](#-comandos-rápidos)
+
+---
+
+# 🧰 Tecnologías
 
 | Tecnología          | Uso                              |
-| ------------------- | -------------------------------- |
+| :------------------ | :------------------------------- |
 | ⚛️ **Next.js**      | Framework principal · App Router |
-| 🎨 **Tailwind CSS** | Interfaz y estilos               |
 | 🟦 **TypeScript**   | Tipado y desarrollo seguro       |
-| 🔷 **Prisma ORM**   | Acceso y gestión de datos        |
+| 🎨 **Tailwind CSS** | Interfaz y estilos               |
+| 🔷 **Prisma ORM**   | Acceso a la base de datos        |
 | 🐘 **PostgreSQL**   | Base de datos                    |
 | 🟢 **Node.js**      | Entorno de ejecución             |
+| 🔐 **NextAuth.js**  | Autenticación y sesiones         |
+| 📷 **HTML5-QRCode** | Escaneo de códigos QR            |
 
 ---
 
-# 🚀 1. Instalación
+# 🚀 Instalación
 
-### 📥 Clonar el repositorio
+## 1. Clonar el repositorio
 
 ```bash
 git clone https://github.com/SoyTonion/SCPV.git
-cd scpv
+cd SCPV
 ```
 
-### 📦 Instalar dependencias
+## 2. Instalar dependencias
 
 ```bash
 npm install
 ```
 
-> **Importante:** `npm install` utilizará las versiones especificadas en `package.json`.
+## 3. Configurar variables de entorno
 
-### 🔐 Variables de entorno
-
-Crea un archivo `.env` en la raíz del proyecto:
+Crear un archivo `.env` en la raíz:
 
 ```env
 DATABASE_URL="postgresql://USUARIO:PASSWORD@localhost:5432/control_parque_vehicular?schema=public"
+NEXTAUTH_SECRET="tu_palabra_secreta_aqui"
+NEXTAUTH_URL="http://localhost:3000"
 ```
 
-> ⚠️ **Nunca subas `.env` al repositorio.**
-> Este archivo contiene credenciales y configuraciones privadas.
+## 4. Configurar la base de datos
 
----
-
-# 📦 2. Prisma
-
-El proyecto utiliza **Prisma 6.19.3**.
-
-Si necesitas realizar una instalación manual:
+Para sincronizar el esquema durante el desarrollo:
 
 ```bash
-npm install prisma@6.19.3 --save-dev
-npm install @prisma/client@6.19.3
+npx prisma db push
 ```
 
-### 🗄️ Comandos principales
-
-| Comando                                | Función                          |
-| -------------------------------------- | -------------------------------- |
-| `npx prisma init`                      | Inicializa Prisma                |
-| `npx prisma migrate dev --name nombre` | Crea y aplica una migración      |
-| `npx prisma generate`                  | Genera Prisma Client             |
-| `npx prisma db seed`                   | Ejecuta los datos iniciales      |
-| `npx prisma studio`                    | Abre la interfaz visual de la BD |
-
-### ✏️ Después de modificar `schema.prisma`
-
-```bash
-npx prisma migrate dev --name descripcion_del_cambio
-```
-
-Si únicamente necesitas regenerar el cliente:
+Generar Prisma Client:
 
 ```bash
 npx prisma generate
 ```
 
----
+Cargar los datos iniciales:
 
-# 🖥️ 3. Ejecutar el proyecto
+```bash
+npx prisma db seed
+```
 
-Inicia el servidor de desarrollo:
+## 5. Iniciar el proyecto
 
 ```bash
 npm run dev
 ```
 
-Después abre:
+Aplicación disponible en:
 
-**http://localhost:3000**
+```text
+http://localhost:3000
+```
 
 ---
 
-# 🗂️ 4. Arquitectura del Proyecto
+# 📦 Prisma ORM
 
-La estructura principal del proyecto está organizada de la siguiente manera:
+El proyecto utiliza **Prisma `6.19.3`**.
+
+### Comandos principales
+
+| Comando                                | Función                                   |
+| :------------------------------------- | :---------------------------------------- |
+| `npx prisma init`                      | Inicializa Prisma                         |
+| `npx prisma generate`                  | Genera Prisma Client                      |
+| `npx prisma migrate dev --name nombre` | Crea una migración                        |
+| `npx prisma db push`                   | Sincroniza el esquema sin crear migración |
+| `npx prisma db seed`                   | Ejecuta los datos iniciales               |
+| `npx prisma studio`                    | Abre el visor de la base de datos         |
+
+### 🔄 `migrate dev` vs `db push`
+
+**`migrate dev`**
+
+Utilizar cuando el cambio debe quedar registrado en el historial de migraciones:
+
+```bash
+npx prisma migrate dev --name descripcion_del_cambio
+```
+
+**`db push`**
+
+Utilizar para sincronizar rápidamente `schema.prisma` durante el desarrollo, sin crear una migración:
+
+```bash
+npx prisma db push
+```
+
+> 💡 Para cambios estructurales que deban conservarse en el historial del proyecto, utilizar `migrate dev`.
+
+### 🌱 Seed
+
+Los datos iniciales se encuentran en:
+
+```text
+prisma/
+└── seed_roles.ts
+```
+
+Se ejecutan mediante:
+
+```bash
+npx prisma db seed
+```
+
+---
+
+# 🗂️ Arquitectura
+
+La estructura utiliza **Next.js App Router** y una organización modular.
+
+Se utilizan listas anidadas en lugar de árboles con caracteres `├──`, `└──`, etc., para garantizar una visualización correcta en GitHub, VS Code y dispositivos móviles.
+
+## 📁 Estructura principal
 
 * 📁 **`prisma/`**
 
   * 🗄️ `schema.prisma` → Modelos y estructura de la base de datos.
-  * 🌱 `seed.ts` → Datos iniciales y catálogos.
+  * 🌱 `seed_roles.ts` → Datos iniciales y usuarios de prueba.
 
 * 📁 **`src/`**
 
-  * ⚙️ **`actions/`** → Server Actions para operaciones con la BD.
-  * 🧩 **`components/`** → Componentes reutilizables de interfaz.
+  * ⚙️ **`actions/`** → Server Actions para operaciones internas.
+  * 🧩 **`components/`** → Componentes reutilizables.
   * 🛠️ **`lib/`** → Configuraciones y utilidades globales.
-  * 🌐 **`app/`** → Sistema de rutas mediante Next.js App Router.
+  * 🌐 **`app/`** → Rutas de la aplicación mediante App Router.
 
-    * 📄 `page.tsx` → **Login institucional** (`/`)
+    * 📄 `page.tsx` → Login institucional (`/`).
 
     * 📁 **`api/`**
 
-      * 🔌 Endpoints REST destinados principalmente a aplicaciones móviles o servicios externos.
+      * 🔐 `auth/[...nextauth]/` → Configuración de NextAuth.
 
-    * 📁 **`dashboard/`**
+    * 📁 **`dashboard/`** → Área administrativa.
 
-      * 🟢 Panel principal del sistema.
+      * 📄 `layout.tsx` → Layout, Navbar y Sidebar.
+      * 📄 `page.tsx` → Dashboard principal.
+      * 📁 `admin/` → Usuarios, roles y permisos.
+      * 📁 `pernocta/` → Vehículos e historial de pernoctas.
+      * 📁 `combustible/` → Gráficas y rendimientos.
+      * 📁 `estado/` → Reportes e inventario.
 
-      * 📄 `layout.tsx` → Layout general, Navbar y Sidebar.
+    * 📁 **`operacion/`** → Área para personal en campo.
 
-      * 📄 `page.tsx` → Página principal del Dashboard.
+      * 📄 `layout.tsx` → Layout móvil y cierre de sesión.
+      * 📁 `pernocta/` → Lector QR para guardias.
+      * 📁 `combustible/` → Registro de recargas.
+      * 📁 `estado/` → Inspecciones físicas.
 
-      * 📁 **`admin/`**
+* 📄 **`.env`** → Variables y credenciales locales. **No subir al repositorio.**
 
-        * 👤 Gestión de usuarios.
-        * 🔐 Roles y permisos.
-
-      * 📁 **`pernocta/`**
-
-        * 🚗 Vehículos.
-        * 📋 Asignaciones.
-        * 🕘 Historial de pernoctas.
-
-      * 📁 **`combustible/`**
-
-        * ⛽ Cargas.
-        * 🎫 Vales.
-        * 📊 Rendimientos.
-        * 🧭 Kilometrajes.
-
-      * 📁 **`estado/`**
-
-        * 🔎 Inspecciones físicas.
-        * 📦 Inventario vehicular.
-
-    * 📁 **`escaner/`**
-
-      * 📷 Lector QR.
-      * 🛡️ Interfaz destinada a los guardias.
-      * 📱 Vista optimizada para pantalla completa.
-
-* 📄 **`.env`**
-
-  * 🔐 Variables y credenciales locales.
-  * 🚫 **No debe subirse a GitHub.**
-
-* 📄 **`package.json`**
-
-  * 📦 Dependencias y scripts del proyecto.
+* 📄 **`package.json`** → Dependencias y scripts del proyecto.
 
 ---
 
-# 🧭 5. Flujo General del Sistema
+# 🧭 Flujo del sistema
+
+El sistema cuenta con dos áreas principales:
 
 ```text
-                    ┌─────────────────────┐
-                    │     LOGIN CFE       │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │      DASHBOARD      │
-                    └──────────┬──────────┘
-                               │
-            ┌──────────────────┼──────────────────┐
-            ▼                  ▼                  ▼
-      ┌───────────┐      ┌────────────┐     ┌───────────┐
-      │ Pernocta  │      │Combustible │     │   Estado  │
-      └───────────┘      └────────────┘     └───────────┘
-            │                  │                  │
-            └──────────────────┼──────────────────┘
-                               ▼
-                    ┌─────────────────────┐
-                    │      PRISMA ORM     │
-                    └──────────┬──────────┘
-                               ▼
-                    ┌─────────────────────┐
-                    │     POSTGRESQL      │
-                    └─────────────────────┘
+                    🔐 LOGIN
+                       │
+             ┌─────────┴─────────┐
+             ▼                   ▼
+      🖥️ DASHBOARD          📱 OPERACIÓN
+      Administrativo          En campo
+             │                   │
+       ┌─────┼─────┐       ┌─────┼─────┐
+       ▼     ▼     ▼       ▼     ▼     ▼
+    Pernocta Comb. Estado   QR   Comb. Insp.
+       │     │     │       │     │     │
+       └─────┴─────┴───────┴─────┴─────┘
+                       │
+                       ▼
+                  🔷 PRISMA ORM
+                       │
+                       ▼
+                  🐘 POSTGRESQL
 ```
+
+> **Dashboard** está orientado a la gestión y consulta.
+> **Operación** está orientado a las actividades realizadas directamente en campo.
 
 ---
 
-# 🛠️ 6. Reglas de Desarrollo
+# 🧩 Módulos
 
-### 01 · Rutas
+| Módulo                | Función                                 |
+| :-------------------- | :-------------------------------------- |
+| 🔐 **Administración** | Usuarios, roles y permisos              |
+| 🚗 **Pernocta**       | Ingresos, salidas e historial vehicular |
+| ⛽ **Combustible**     | Tickets, consumo y rendimiento          |
+| 🔎 **Estado**         | Inspecciones e inventario               |
+| 📊 **Dashboard**      | Información general y métricas          |
+| 📱 **Operación**      | Herramientas para personal en campo     |
 
-En Next.js, las carpetas determinan las rutas.
+---
 
-El archivo que renderiza cada página debe llamarse:
+# 🛠️ Reglas de desarrollo
 
-```text
-page.tsx
-```
+## 01 · Rutas
+
+En Next.js App Router, las carpetas representan segmentos de URL y cada página utiliza `page.tsx`.
 
 Ejemplo:
 
 ```text
 app/
 └── dashboard/
-    └── page.tsx
+    └── pernocta/
+        └── page.tsx
 ```
 
-Esto genera:
+Ruta resultante:
 
 ```text
-/dashboard
+/dashboard/pernocta
 ```
 
 ---
 
-### 02 · Componentes de Cliente
+## 02 · Client Components
 
 Next.js utiliza Server Components por defecto.
 
-Si un componente utiliza:
-
-* `useState`
-* `useEffect`
-* `onClick`
-* Eventos del navegador
-* APIs del navegador
-
-debe utilizar:
+Si un componente utiliza hooks, eventos del navegador o estado interactivo, debe incluir:
 
 ```tsx
 "use client";
@@ -249,118 +275,65 @@ debe utilizar:
 
 ---
 
-### 03 · Server Actions vs API
+## 03 · Server Actions y API
 
-Priorizar:
+Utilizar preferentemente:
 
 ```text
 src/actions/
 ```
 
-para operaciones internas de la aplicación y acceso a la base de datos.
+para operaciones internas de la aplicación.
 
-La carpeta:
+Utilizar:
 
 ```text
 src/app/api/
 ```
 
-queda principalmente destinada a:
-
-* 📱 Aplicaciones móviles
-* 🔌 Servicios externos
-* 🌐 Integraciones que requieran endpoints HTTP
+para endpoints HTTP, integraciones externas y autenticación.
 
 ---
 
-### 04 · Estilos
+## 04 · Componentes
+
+Los componentes reutilizables deben mantenerse en:
+
+```text
+src/components/
+```
+
+Evitar duplicar componentes o lógica existente.
+
+---
+
+## 05 · Estilos
 
 El proyecto utiliza **Tailwind CSS**.
 
-Los estilos deben manejarse mediante clases utilitarias:
+Preferir clases utilitarias:
 
 ```tsx
-<div className="flex items-center justify-between">
-```
-
-Evitar crear archivos `.css` externos salvo que exista una necesidad técnica justificada.
-
----
-
-### 05 · Prisma
-
-Después de modificar:
-
-```text
-prisma/schema.prisma
-```
-
-se debe crear una migración:
-
-```bash
-npx prisma migrate dev --name descripcion_del_cambio
-```
-
-Y después de obtener cambios del repositorio que involucren Prisma:
-
-```bash
-npx prisma generate
+<div className="flex items-center gap-4">
 ```
 
 ---
 
-# 👥 7. Módulos del Sistema
+## 06 · Prisma
 
-| Módulo                | Función                             |
-| --------------------- | ----------------------------------- |
-| 🔐 **Administración** | Usuarios, roles y permisos          |
-| 🚗 **Pernocta**       | Vehículos, asignaciones e historial |
-| ⛽ **Combustible**     | Vales, cargas y rendimientos        |
-| 🔎 **Estado**         | Inspecciones e inventario           |
-| 📷 **Escáner**        | Lectura de códigos QR               |
-| 📊 **Dashboard**      | Información general y métricas      |
+Los cambios realizados en `schema.prisma` deben sincronizarse correctamente:
+
+* `migrate dev` → cambios que deben quedar registrados.
+* `db push` → sincronización rápida durante desarrollo.
+* `generate` → actualización de Prisma Client.
 
 ---
 
-# ⚡ 8. Comandos Rápidos
+# 🔒 Seguridad
 
-### Desarrollo
+## Variables de entorno
 
-```bash
-npm run dev
-```
-
-### Compilar
-
-```bash
-npm run build
-```
-
-### Ejecutar producción
-
-```bash
-npm start
-```
-
-### Prisma
-
-```bash
-npx prisma studio
-```
-
-```bash
-npx prisma generate
-```
-
-```bash
-npx prisma migrate dev --name cambio
-```
-
----
-
-# 🔒 9. Seguridad
-
-### Nunca subir al repositorio:
+Nunca subir:
 
 ```text
 .env
@@ -368,45 +341,101 @@ npx prisma migrate dev --name cambio
 .env.production
 ```
 
-Las credenciales, contraseñas y cadenas de conexión deben permanecer únicamente en variables de entorno.
+Las credenciales y cadenas de conexión deben permanecer fuera del código fuente.
+
+## 🔑 `NEXTAUTH_SECRET`
+
+En desarrollo puede utilizarse una clave temporal.
+
+En producción debe utilizarse una clave criptográficamente segura.
+
+Generar una clave con:
+
+```bash
+openssl rand -base64 32
+```
+
+> Cambiar `NEXTAUTH_SECRET` invalida las sesiones existentes, pero no elimina usuarios ni modifica la base de datos.
 
 ---
 
-# 📌 10. Notas para el Equipo
+# 👥 Flujo de trabajo
 
-Antes de realizar cambios importantes:
-
-1. 🔄 Actualizar el repositorio.
-2. 📦 Instalar dependencias si hubo modificaciones.
-3. 🗄️ Revisar cambios en Prisma.
-4. 🧪 Probar localmente.
-5. 🔍 Verificar que no existan errores.
-6. 📤 Realizar el commit.
-7. 🚀 Subir los cambios.
-
-### Flujo recomendado
+## Antes de comenzar
 
 ```bash
 git pull
 npm install
-
-npx prisma generate
-
 npm run dev
 ```
 
-Después de comprobar los cambios:
+Si hubo cambios en Prisma:
 
 ```bash
-git add .
-git commit -m "descripcion del cambio"
-git push
+npx prisma generate
+```
+
+## Antes de hacer `push`
+
+1. 🔄 Actualizar el repositorio.
+2. 🧪 Probar los cambios localmente.
+3. 🔍 Revisar errores.
+4. 🗄️ Verificar cambios de Prisma.
+5. 🔐 Confirmar que no se incluyan archivos `.env`.
+6. 📝 Crear un commit descriptivo.
+7. 📤 Subir los cambios.
+
+### 📝 Convención de commits
+
+| Prefijo     | Uso                        |
+| :---------- | :------------------------- |
+| `feat:`     | Nueva funcionalidad        |
+| `fix:`      | Corrección de errores      |
+| `refactor:` | Refactorización            |
+| `style:`    | Cambios visuales o formato |
+| `docs:`     | Documentación              |
+| `chore:`    | Mantenimiento              |
+
+Ejemplos:
+
+```text
+feat: agregar lector QR
+fix: corregir validación de combustible
+refactor: reorganizar acciones de usuarios
+style: mejorar diseño del dashboard
+docs: actualizar README
+chore: actualizar dependencias
 ```
 
 ---
 
-## 🏢 Sistema Integral Vehicular CFE
+# ⚡ Comandos rápidos
 
-**SCPV · Sistema de Control y Gestión Vehicular**
+| Comando                                  | Acción                            |
+| :--------------------------------------- | :-------------------------------- |
+| `npm install`                            | Instalar dependencias             |
+| `npm run dev`                            | Iniciar desarrollo                |
+| `npx prisma generate`                    | Generar Prisma Client             |
+| `npx prisma db push`                     | Sincronizar esquema sin migración |
+| `npx prisma migrate dev --name <nombre>` | Crear migración                   |
+| `npx prisma db seed`                     | Ejecutar Seed                     |
+| `npx prisma studio`                      | Abrir Prisma Studio               |
 
-> 💻 Desarrollo orientado a la digitalización y optimización de procesos vehiculares institucionales.
+---
+
+# 🏢 Sistema Integral Vehicular CFE
+
+### SCPV · Sistema de Control y Gestión Vehicular
+
+> 💻 Plataforma desarrollada para la **digitalización y optimización de los procesos relacionados con la gestión del parque vehicular institucional**.
+
+**Stack:**
+`Next.js` · `TypeScript` · `Tailwind CSS` · `Prisma` · `PostgreSQL`
+
+---
+
+<p align="center">
+  ⚡ <strong>SCPV</strong> · Sistema Integral Vehicular CFE
+  <br>
+  <sub>Sistema de Control y Gestión Vehicular</sub>
+</p>
