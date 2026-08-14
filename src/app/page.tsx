@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+// Importamos signIn para validar y getSession para leer el rol
+import { signIn, getSession } from "next-auth/react";
 
 export default function LoginScreen() {
     const [username, setUsername] = useState('');
@@ -9,7 +11,6 @@ export default function LoginScreen() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     
-    // Herramienta de Next.js para navegar entre páginas
     const router = useRouter(); 
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -23,13 +24,37 @@ export default function LoginScreen() {
 
         setLoading(true);
 
-        // TODO: Aquí irá tu API real en el futuro.
-        // Por ahora, simulamos que carga por 1 segundo y te manda al dashboard
-        // para que tú y tu equipo puedan probar la navegación sin que marque error.
-        setTimeout(() => {
+        // 1. Verificamos credenciales con la base de datos
+        const res = await signIn("credentials", {
+            usuario: username,
+            password: password,
+            redirect: false, 
+        });
+
+        if (res?.error) {
+            // Si la base de datos dice que no existe o la contraseña está mal
+            setError('Usuario o contraseña incorrectos.');
             setLoading(false);
-            router.push('/dashboard'); 
-        }, 1000);
+        } else if (res?.ok) {
+            // 2. Extraemos los datos de la sesión recién creada
+            const session = await getSession();
+            const userRole = session?.user?.rol;
+
+            // 3. Redirección inteligente basada en el ROL
+            if (userRole === 'ADMIN') {
+                router.push('/dashboard'); 
+            } 
+            else if (userRole === 'GUARDIA') {
+                router.push('/operacion/pernocta'); 
+            } 
+            else if (userRole === 'OPERADOR') {
+                router.push('/operacion/combustible'); 
+            } 
+            else {
+                setError('Error de permisos. Contacte al administrador.');
+                setLoading(false);
+            }
+        }
     };
 
     return (
