@@ -1,5 +1,7 @@
 'use client'
-
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from "@/lib/auth";
 import Link from 'next/link'
 import { Truck, History } from 'lucide-react'
 import {
@@ -17,6 +19,13 @@ import {
   Bar,
 } from 'recharts'
 
+const ROLES_PERMITIDOS = [ 1 ];
+
+const session = await getServerSession(authOptions);
+
+  if (!session) redirect('/');
+  if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
+  
 interface PernoctaChartsProps {
   donaData: { name: string; value: number; color: string }[]
   movimientosData: { day: string; entradas: number; salidas: number }[]

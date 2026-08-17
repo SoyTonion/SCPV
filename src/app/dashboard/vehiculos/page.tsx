@@ -4,7 +4,13 @@ import { authOptions } from "@/lib/auth";
 import Link from 'next/link'
 import { getVehiculosPernocta, deleteVehiculo } from './actions'
 
+
 const ROLES_PERMITIDOS = [ 1 ];
+
+const session = await getServerSession(authOptions);
+
+  if (!session) redirect('/');
+  if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
 
 export default async function VehiculosPage({
   searchParams,
