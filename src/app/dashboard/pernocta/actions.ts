@@ -2,9 +2,12 @@
 
 import { prisma } from '@/lib/prisma'
 
+// ============================================================
+// DASHBOARD DE PERNOCTA (ESTADÍSTICAS)
+// ============================================================
 export async function getPernoctaDashboardStats() {
   try {
-    // 1. Estado de Autorización de Pernocta (Permitido pernoctar vs No permitido)
+    // 1. Estado de Autorización de Pernocta
     const autorizados = await prisma.vehiculo.count({
       where: { vehiculoPernocta: true },
     })
@@ -12,7 +15,7 @@ export async function getPernoctaDashboardStats() {
       where: { vehiculoPernocta: false },
     })
 
-    // 2. Conteo por Tipo de Vehículo usando "tipoVehiculo"
+    // 2. Conteo por Tipo de Vehículo
     const tiposGroup = await prisma.vehiculo.groupBy({
       by: ['tipoVehiculo'],
       _count: { id: true },
@@ -26,16 +29,18 @@ export async function getPernoctaDashboardStats() {
       color: colores[idx % colores.length],
     }))
 
-    // 3. Últimos 5 Escaneos / Movimientos de la bitácora
+    // 3. Últimos 5 Escaneos de la bitácora
     let ultimosRegistros: any[] = []
     try {
-      ultimosRegistros = await prisma.escaneo.findMany({
+      const escaneosRaw = await prisma.escaneo.findMany({
         take: 5,
-        orderBy: { id: 'desc' }, // Carga los más recientes por ID
+        orderBy: { id: 'desc' },
         include: { vehiculo: true },
       })
+
+      ultimosRegistros = JSON.parse(JSON.stringify(escaneosRaw))
     } catch {
-  ultimosRegistros = []
+      ultimosRegistros = []
     }
 
     return {
@@ -52,5 +57,64 @@ export async function getPernoctaDashboardStats() {
   } catch (error) {
     console.error('Error al cargar datos del dashboard de pernocta:', error)
     return { success: false, error: 'No se pudieron cargar los datos reales' }
+  }
+}
+
+// ============================================================
+// OBTENER VEHÍCULOS PARA LA TABLA
+// ============================================================
+export async function getVehiculosConMetricas(query: string = '') {
+  try {
+    const vehiculos = await prisma.vehiculo.findMany({
+      where: {
+        OR: [
+          { economico: { contains: query, mode: 'insensitive' } },
+          { placas: { contains: query, mode: 'insensitive' } },
+          { responsable: { contains: query, mode: 'insensitive' } },
+          { marcaVehiculo: { contains: query, mode: 'insensitive' } },
+          { submarcaVehiculo: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { creadoEn: 'desc' },
+      include: {
+        departamento: {
+          select: {
+            nombreDepartamento: true,
+          },
+        },
+      },
+    })
+
+    return {
+      success: true,
+      data: JSON.parse(JSON.stringify(vehiculos)),
+    }
+  } catch (error) {
+    console.error('Error al obtener vehículos:', error)
+    return {
+      success: false,
+      error: 'No se pudo obtener el listado de vehículos.',
+      data: [],
+    }
+  }
+}
+
+// ============================================================
+// TOGGLE DE PERMISO DE PERNOCTA
+// ============================================================
+export async function togglePermisoPernocta(vehiculoId: string, nuevoEstado: boolean) {
+  try {
+    const vehiculoActualizado = await prisma.vehiculo.update({
+      where: { id: vehiculoId },
+      data: { vehiculoPernocta: nuevoEstado },
+    })
+
+    return {
+      success: true,
+      data: JSON.parse(JSON.stringify(vehiculoActualizado)),
+    }
+  } catch (error) {
+    console.error('Error al actualizar permiso de pernocta:', error)
+    return { success: false, error: 'No se pudo actualizar el permiso' }
   }
 }
