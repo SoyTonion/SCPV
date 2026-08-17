@@ -41,7 +41,7 @@ export default function LoginClientForm() {
                 router.push('/dashboard'); 
             } 
             else if (userRole === 2) {
-                router.push('/operacion/pernocta'); 
+                router.push('/guardia/pernocta'); 
             } 
             else if (userRole === 3) {
                 router.push('/operacion/combustible'); 

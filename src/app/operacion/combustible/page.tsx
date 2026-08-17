@@ -8,7 +8,7 @@ export default async function RegistroCombustiblePage() {
     const roleId = session?.user?.rol as number;
 
     if (roleId !== 1 && roleId !== 3) {
-      if (roleId === 2) redirect('/operacion/pernocta');
+      if (roleId === 2) redirect('/guardia/pernocta');
       redirect('/');
     }
 

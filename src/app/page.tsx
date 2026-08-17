@@ -10,7 +10,7 @@ export default async function LoginPage() {
     if (session) {
         const roleId = session.user?.rol as number;
         if (roleId === 1) redirect('/dashboard');
-        if (roleId === 2) redirect('/operacion/pernocta');
+        if (roleId === 2) redirect('/guardia/pernocta');
         if (roleId === 3) redirect('/operacion/combustible');
     }
 

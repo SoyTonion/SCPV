@@ -2,8 +2,6 @@ import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions } from "@/lib/auth";
 import React from 'react';
-import Link from 'next/link';
-// IMPORTANTE: Importamos nuestro botón personalizado
 import LogoutButton from '@/components/ui/LogoutButton';
 
 export default async function DashboardLayout({
@@ -11,16 +9,13 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect('/');
+    const session = await getServerSession(authOptions);
+    const roleId = session?.user?.rol as number;
 
-  const roleId = session?.user?.rol as number;
-
-  if (roleId !== 1) {
-    if (roleId === 2) redirect('/guardia/pernocta');
-    if (roleId === 3) redirect('/operacion/combustible');
-    redirect('/');
-  }
+    if (roleId !== 1 && roleId !== 2) {
+      if (roleId === 3) redirect('/operacion/combustible');
+      redirect('/');
+    }
 
   const userName = session?.user?.name || session?.user?.usuario || 'Usuario CFE';
   const userRole = session?.user?.rolName || 'OPERATIVO';
@@ -35,16 +30,12 @@ export default async function DashboardLayout({
         <div className="flex items-center space-x-3">
           <span className="font-extrabold text-xl tracking-wider">CFE</span>
           <span className="text-sm border-l border-white/30 pl-3 font-light tracking-wide">
-            Sistema Integral Vehicular
+            Módulo de Operaciones
           </span>
         </div>
 
         {/* Lado Derecho: Info del Usuario y Controles */}
         <div className="flex items-center space-x-6 text-sm">
-          
-          <Link href="/dashboard" className="hover:text-green-200 transition-colors font-medium hidden md:block">
-            Inicio
-          </Link>
           
           <div className="hidden md:block w-px h-6 bg-white/20"></div>
 
@@ -73,11 +64,10 @@ export default async function DashboardLayout({
         </div>
       </nav>
 
-      {/* Aquí es donde Next.js va a inyectar tus pantallas dinámicas (el page.tsx) */}
-      <main className="flex-grow p-4 md:p-8">
-        {children}
-      </main>
-      
+            {/* Aquí adentro va a renderizar el formulario de gasolina, el escáner o el estado físico */}
+        <main className="flex-grow">
+            {children}
+        </main>
     </div>
-  );
+);
 }
