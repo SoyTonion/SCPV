@@ -21,11 +21,9 @@ import {
 
 const ROLES_PERMITIDOS = [ 1 ];
 
-const session = await getServerSession(authOptions);
 
-  if (!session) redirect('/');
-  if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
   
+
 interface PernoctaChartsProps {
   donaData: { name: string; value: number; color: string }[]
   movimientosData: { day: string; entradas: number; salidas: number }[]
@@ -51,7 +49,7 @@ export default function PernoctaCharts({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Tarjeta Vehículos */}
         <Link
-          href="/dashboard/pernocta/vehiculos"
+          href="/dashboard/pernocta/vehiculos/nuevo"
           className="group relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0d5c33] via-[#15803d] to-[#22c55e] p-6 text-white shadow-lg transition-all hover:scale-[1.01] hover:shadow-xl"
         >
           <div className="flex items-center gap-5">
