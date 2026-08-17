@@ -11,7 +11,7 @@ export default async function ScannerPernoctaPage() {
     const session = await getServerSession(authOptions);
     const roleId = session?.user?.rol as number;
   
-    if (roleId !== 2) {
+    if (roleId !== 1 && roleId !== 2) {
       if (roleId === 3) redirect('/operacion/combustible');
       redirect('/');
     }
