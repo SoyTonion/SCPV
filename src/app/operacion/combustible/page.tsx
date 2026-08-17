@@ -1,13 +1,16 @@
 "use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 
 export default function RegistroCombustiblePage() {
-  const router = useRouter();
+  // Estados para el QR y Vehículo
+  const [vehiculo, setVehiculo] = useState(''); 
+  const [vehiculoId, setVehiculoId] = useState(''); 
+  const [buscandoQR, setBuscandoQR] = useState(false); 
+  const [mostrarEscaner, setMostrarEscaner] = useState(false);
   
-  // Estados para guardar lo que escribe el operador
-  const [vehiculo, setVehiculo] = useState('');
+  // Estados del Formulario
   const [kilometraje, setKilometraje] = useState('');
   const [litros, setLitros] = useState('');
   const [importe, setImporte] = useState('');
@@ -16,32 +19,96 @@ export default function RegistroCombustiblePage() {
   const [loading, setLoading] = useState(false);
   const [exito, setExito] = useState(false);
 
-  // Simulación de abrir la cámara y escanear el QR
-  const simularEscaneoQR = () => {
-    // Aquí a futuro llamaremos al componente de html5-qrcode
-    setVehiculo('CFE-PICKUP-015'); // Autocompletamos por ahora
+  // 1. SOLUCIÓN: Movemos la función ARRIBA del useEffect para que ya exista cuando la cámara la necesite
+  const procesarQRReal = async (qrEscaneado: string) => {
+    setBuscandoQR(true);
+    try {
+      const respuesta = await fetch(`/api/vehiculos/${qrEscaneado}`);
+      
+      if (respuesta.ok) {
+        const datosVehiculo = await respuesta.json();
+        const textoMostrar = `${datosVehiculo.marcaVehiculo} ${datosVehiculo.submarcaVehiculo} - Placas: ${datosVehiculo.placas || 'N/A'}`;
+        setVehiculo(textoMostrar);
+        setVehiculoId(datosVehiculo.id); 
+      } else {
+        alert("⚠️ Código QR inválido o vehículo no encontrado en el padrón de CFE.");
+        setVehiculo('');
+        setVehiculoId('');
+      }
+    } catch (error) {
+      console.error("Error al buscar el vehículo:", error);
+      alert("Error de conexión con el servidor.");
+    } finally {
+      setBuscandoQR(false);
+    }
   };
+
+  // Efecto para inicializar la cámara cuando mostrarEscaner es true
+  useEffect(() => {
+    if (mostrarEscaner) {
+      const scanner = new Html5QrcodeScanner(
+        "lector-qr",
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        false
+      );
+
+      scanner.render(
+        async (textoEscaneado) => {
+          // Si lee un código con éxito:
+          scanner.clear(); // Apagamos la cámara
+          setMostrarEscaner(false); // Ocultamos la interfaz del escáner
+          await procesarQRReal(textoEscaneado); // Mandamos el texto a la base de datos
+        },
+        // 3. SOLUCIÓN: Quitamos la variable 'errorMessage' que no usábamos
+        () => {
+          // Los errores de lectura continua se ignoran en silencio
+        }
+      );
+
+      // Limpieza en caso de que el usuario cierre el componente antes de escanear
+      return () => {
+        scanner.clear().catch(error => console.error("Fallo al limpiar escáner", error));
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrarEscaner]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // TODO: Aquí conectaremos con Prisma para guardar en PostgreSQL
-    // Por ahora simulamos que guarda en 1.5 segundos
-    setTimeout(() => {
+    try {
+      const respuesta = await fetch('/api/combustible', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehiculoId,
+          kilometraje,
+          litros,
+          importe
+        }),
+      });
+
+      if (respuesta.ok) {
+        setExito(true);
+        setTimeout(() => {
+          setExito(false);
+          setVehiculo('');
+          setVehiculoId('');
+          setKilometraje('');
+          setLitros('');
+          setImporte('');
+          setFotoTicket(null);
+        }, 2000);
+      } else {
+        alert("Hubo un error al intentar guardar el registro.");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error de conexión con el servidor.");
+    } finally {
       setLoading(false);
-      setExito(true);
-      
-      // Después de 2 segundos de éxito, limpiamos el form
-      setTimeout(() => {
-        setExito(false);
-        setVehiculo('');
-        setKilometraje('');
-        setLitros('');
-        setImporte('');
-        setFotoTicket(null);
-      }, 2000);
-    }, 1500);
+    }
   };
 
   return (
@@ -54,6 +121,23 @@ export default function RegistroCombustiblePage() {
           Completa los datos de tu recarga y anexa la evidencia.
         </p>
 
+        {/* --- VENTANA DEL ESCÁNER DE CÁMARA --- */}
+        {mostrarEscaner && (
+          <div className="mb-6 p-2 border-2 border-[#007A33] rounded-lg bg-slate-50">
+            <div className="flex justify-between items-center mb-2 px-2">
+              <span className="font-bold text-slate-700 text-sm">Escanea el código del vehículo</span>
+              <button 
+                onClick={() => setMostrarEscaner(false)}
+                className="text-red-500 text-sm font-bold hover:underline"
+              >
+                Cancelar
+              </button>
+            </div>
+            {/* Aquí es donde la librería html5-qrcode inyecta la cámara */}
+            <div id="lector-qr" className="w-full overflow-hidden rounded-lg"></div>
+          </div>
+        )}
+
         {exito ? (
           <div className="bg-green-50 border border-green-200 rounded-lg p-6 flex flex-col items-center text-center animate-pulse">
             <div className="w-16 h-16 bg-[#007A33] text-white rounded-full flex items-center justify-center text-3xl mb-4 shadow-lg">
@@ -63,7 +147,7 @@ export default function RegistroCombustiblePage() {
             <p className="text-sm text-slate-600 mt-2">La carga de combustible ha sido guardada en el sistema.</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className={`space-y-5 ${mostrarEscaner ? 'hidden' : 'block'}`}>
             
             {/* Paso 1: Escanear Vehículo */}
             <div>
@@ -81,18 +165,21 @@ export default function RegistroCombustiblePage() {
                 />
                 <button
                   type="button"
-                  onClick={simularEscaneoQR}
-                  className="bg-slate-800 text-white px-4 rounded-lg flex items-center justify-center hover:bg-slate-700 transition"
+                  onClick={() => setMostrarEscaner(true)} // Activa la cámara
+                  disabled={buscandoQR}
+                  className="bg-slate-800 text-white px-4 rounded-lg flex items-center justify-center hover:bg-slate-700 transition disabled:opacity-50"
                   title="Escanear QR"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                  </svg>
+                  {buscandoQR ? '...' : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                    </svg>
+                  )}
                 </button>
               </div>
             </div>
 
-            {/* Paso 2: Datos de Carga (Kilometraje, Litros, Importe) */}
+            {/* Paso 2: Datos de Carga */}
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label htmlFor="kilometraje" className="block text-sm font-medium text-slate-700 mb-1">
@@ -161,7 +248,6 @@ export default function RegistroCombustiblePage() {
                   <div className="flex text-sm text-slate-600 justify-center">
                     <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-[#007A33] hover:text-[#005c26] focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-[#007A33] px-1">
                       <span>{fotoTicket ? 'Cambiar foto' : 'Tomar o subir foto'}</span>
-                      {/* accept="image/*" y capture="environment" abre la cámara directo en celulares */}
                       <input 
                         id="file-upload" 
                         name="file-upload" 
@@ -187,12 +273,11 @@ export default function RegistroCombustiblePage() {
             {/* Botón de Guardar */}
             <button 
               type="submit" 
-              disabled={loading || !vehiculo}
+              disabled={loading || !vehiculoId}
               className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-bold rounded-lg p-4 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed mt-4 text-lg"
             >
               {loading ? 'Guardando registro...' : 'Guardar Carga'}
             </button>
-
           </form>
         )}
       </div>
