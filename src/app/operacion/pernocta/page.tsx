@@ -1,10 +1,21 @@
 "use client";
 
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from "@/lib/auth";
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 // import { useRouter } from 'next/navigation'; // Lo usarán después para redirigir
 
-export default function ScannerPernoctaPage() {
+export default async function ScannerPernoctaPage() {
+    const session = await getServerSession(authOptions);
+    const roleId = session?.user?.rol as number;
+  
+    if (roleId !== 2) {
+      if (roleId === 3) redirect('/operacion/combustible');
+      redirect('/');
+    }
+
   const [codigoEscaneado, setCodigoEscaneado] = useState<string | null>(null);
   const scannerRef = useRef<Html5QrcodeScanner | null>(null);
 

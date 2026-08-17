@@ -1,16 +1,6 @@
-import { getServerSession } from 'next-auth';
-import { redirect } from 'next/navigation';
-import { authOptions } from "@/lib/auth";
 import Link from 'next/link';
 
-const ROLES_PERMITIDOS = [ 1];
-
 export default async function DashboardCentral() {
-    const session = await getServerSession(authOptions);
-  
-    if (!session) redirect('/');
-    if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
-
   return (
     <main className="min-h-screen bg-slate-100 p-8">
       <div className="max-w-6xl mx-auto">

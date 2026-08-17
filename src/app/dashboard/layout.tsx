@@ -1,7 +1,8 @@
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from "@/lib/auth";
 import React from 'react';
 import Link from 'next/link';
-// Importamos getServerSession para leer los datos en el servidor
-import { getServerSession } from "next-auth/next";
 // IMPORTANTE: Importamos nuestro botón personalizado
 import LogoutButton from '@/components/ui/LogoutButton';
 
@@ -10,10 +11,19 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getServerSession();
-  
+  const session = await getServerSession(authOptions);
+  if (!session) redirect('/');
+
+  const roleId = session?.user?.rol as number;
+
+  if (roleId !== 1) {
+    if (roleId === 2) redirect('/operacion/pernocta');
+    if (roleId === 3) redirect('/operacion/combustible');
+    redirect('/');
+  }
+
   const userName = session?.user?.name || session?.user?.usuario || 'Usuario CFE';
-  const userRole = session?.user?.rol || 'OPERATIVO';
+  const userRole = session?.user?.rolName || 'OPERATIVO';
 
   return (
     <div className="flex flex-col flex-grow font-sans">
