@@ -1,11 +1,21 @@
+import { getServerSession } from 'next-auth';
+import { redirect } from 'next/navigation';
+import { authOptions } from "@/lib/auth";
 import Link from 'next/link'
-import { getVehiculosPernocta, togglePernoctaVehiculo, deleteVehiculo } from './actions'
+import { getVehiculosPernocta, deleteVehiculo } from './actions'
+
+const ROLES_PERMITIDOS = [ 1 ];
 
 export default async function VehiculosPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string }>
 }) {
+    const session = await getServerSession(authOptions);
+  
+    if (!session) redirect('/');
+    if (!ROLES_PERMITIDOS.includes(Number(session.user.rol))) redirect('/operacion');
+
   const query = (await searchParams)?.q || ''
   const { data: vehiculos = [] } = await getVehiculosPernocta(query)
 
@@ -63,14 +73,13 @@ export default async function VehiculosPage({
                 <th className="p-4">Vehículo</th>
                 <th className="p-4">Responsable</th>
                 <th className="p-4">Departamento</th>
-                <th className="p-4 text-center">Permiso Pernocta</th>
                 <th className="p-4 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {vehiculos?.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-400">
+                  <td colSpan={5} className="p-8 text-center text-slate-400">
                     No se encontraron vehículos registrados.
                   </td>
                 </tr>
@@ -92,25 +101,6 @@ export default async function VehiculosPage({
                       <span className="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-md font-medium inline-block">
                         {v.departamento?.nombreDepartamento || 'Sin Depto'}
                       </span>
-                    </td>
-                    <td className="p-4 text-center">
-                      <form
-                        action={async () => {
-                          'use server'
-                          await togglePernoctaVehiculo(v.id, !v.vehiculoPernocta)
-                        }}
-                      >
-                        <button
-                          type="submit"
-                          className={`px-3 py-1.5 text-xs font-semibold rounded-full border transition-all ${
-                            v.vehiculoPernocta
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                              : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                          }`}
-                        >
-                          {v.vehiculoPernocta ? '● Autorizado' : '○ Denegado'}
-                        </button>
-                      </form>
                     </td>
                     <td className="p-4 text-right space-x-3">
                       <Link

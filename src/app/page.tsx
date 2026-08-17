@@ -38,13 +38,13 @@ export default function LoginScreen() {
             const session = await getSession();
             const userRole = session?.user?.rol;
 
-            if (userRole === 'ADMIN') {
+            if (userRole === 1) {
                 router.push('/dashboard'); 
             } 
-            else if (userRole === 'GUARDIA') {
+            else if (userRole === 2) {
                 router.push('/operacion/pernocta'); 
             } 
-            else if (userRole === 'OPERADOR') {
+            else if (userRole === 3) {
                 router.push('/operacion/combustible'); 
             } 
             else {
