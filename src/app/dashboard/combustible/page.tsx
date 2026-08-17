@@ -1,11 +1,25 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 
-// Datos de prueba simulados para la gráfica
+// Interfaz para tipar correctamente los registros que vienen de la API
+interface Registro {
+  id: string;
+  litrosCargados: number;
+  costoTotal: number;
+  fechaCarga: string | null;
+  vehiculo: {
+    marcaVehiculo: string;
+    submarcaVehiculo: string;
+    placas: string | null;
+    economico: string | null;
+  };
+}
+
+// Datos simulados para la gráfica (se pueden hacer dinámicos después)
 const datosConsumo = [
   { dia: 'Lun', litros: 120 },
   { dia: 'Mar', litros: 85 },
@@ -16,14 +30,31 @@ const datosConsumo = [
   { dia: 'Dom', litros: 0 },
 ];
 
-// Datos de prueba para la tabla de los últimos tickets
-const ultimosRegistros = [
-  { id: 1, vehiculo: 'CFE-AVEO-001', operador: 'Juan Pérez', litros: 40, fecha: '14/08/2026 10:30', rendimiento: '12.5 km/l' },
-  { id: 2, vehiculo: 'CFE-PICKUP-015', operador: 'Luis Gómez', litros: 80, fecha: '14/08/2026 09:15', rendimiento: '8.2 km/l' },
-  { id: 3, vehiculo: 'CFE-TSURU-042', operador: 'Carlos Ruiz', litros: 35, fecha: '13/08/2026 16:45', rendimiento: '14.1 km/l' },
-];
-
 export default function CombustibleDashboard() {
+  const [registros, setRegistros] = useState<Registro[]>([]);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        const res = await fetch('/api/combustible');
+        if (res.ok) {
+          const data = await res.json();
+          setRegistros(data);
+        }
+      } catch (error) {
+        console.error("Error al cargar los datos:", error);
+      } finally {
+        setCargando(false);
+      }
+    };
+    cargarDatos();
+  }, []);
+
+  // Cálculos matemáticos en tiempo real para las tarjetas (KPIs)
+  const totalLitrosReal = registros.reduce((suma, reg) => suma + Number(reg.litrosCargados), 0);
+  const totalGastoReal = registros.reduce((suma, reg) => suma + Number(reg.costoTotal), 0);
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       
@@ -71,16 +102,19 @@ export default function CombustibleDashboard() {
       {/* Tarjetas de Indicadores (KPIs) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-[#007A33] relative overflow-hidden">
-          <p className="text-sm font-medium text-slate-500 mb-1">Total Litros (Mes)</p>
-          <p className="text-3xl font-bold text-slate-800">2,450 <span className="text-sm font-normal text-slate-500">L</span></p>
+          <p className="text-sm font-medium text-slate-500 mb-1">Total Litros</p>
+          <p className="text-3xl font-bold text-slate-800">
+            {cargando ? '...' : totalLitrosReal.toLocaleString()} <span className="text-sm font-normal text-slate-500">L</span>
+          </p>
         </div>
         
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-blue-500">
-          <p className="text-sm font-medium text-slate-500 mb-1">Gasto Estimado</p>
-          <p className="text-3xl font-bold text-slate-800"><span className="text-xl">$</span>58,800 <span className="text-sm font-normal text-slate-500">MXN</span></p>
+          <p className="text-sm font-medium text-slate-500 mb-1">Gasto Acumulado</p>
+          <p className="text-3xl font-bold text-slate-800">
+            <span className="text-xl">$</span>{cargando ? '...' : totalGastoReal.toLocaleString()} <span className="text-sm font-normal text-slate-500">MXN</span>
+          </p>
         </div>
 
-        {/* Tarjeta con Alerta de Rendimiento simulada */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 border-l-4 border-l-amber-500 relative">
           <div className="absolute top-4 right-4 h-3 w-3 bg-amber-500 rounded-full animate-pulse"></div>
           <p className="text-sm font-medium text-slate-500 mb-1">Rendimiento Global</p>
@@ -113,32 +147,46 @@ export default function CombustibleDashboard() {
           </div>
         </div>
 
-        {/* Sección de la Tabla Pequeña */}
+        {/* Sección de la Tabla Pequeña (Cargas Recientes Reales) */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-bold text-slate-800">Cargas Recientes</h2>
             <span className="text-xs font-medium text-[#007A33] cursor-pointer hover:underline">Ver todas</span>
           </div>
           
-          <div className="flex-grow overflow-auto pr-1">
+          <div className="grow overflow-auto pr-1 h-72">
             <div className="space-y-4">
-              {ultimosRegistros.map((registro) => (
-                <div key={registro.id} className="p-3 border border-slate-100 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer rounded-lg flex flex-col gap-1">
-                  <div className="flex justify-between items-start">
-                    <span className="font-bold text-sm text-slate-800">{registro.vehiculo}</span>
-                    <span className="text-xs font-semibold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                      {registro.litros} L
+              {cargando ? (
+                <p className="text-center text-sm text-slate-500 mt-10">Cargando registros reales...</p>
+              ) : registros.length === 0 ? (
+                <p className="text-center text-sm text-slate-500 mt-10">Aún no hay cargas registradas.</p>
+              ) : (
+                registros.map((registro) => (
+                  <div key={registro.id} className="p-3 border border-slate-100 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer rounded-lg flex flex-col gap-1 shadow-sm">
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-sm text-slate-800">
+                        {registro.vehiculo.marcaVehiculo} {registro.vehiculo.submarcaVehiculo}
+                      </span>
+                      <span className="text-xs font-bold bg-green-100 text-[#007A33] px-2 py-0.5 rounded-full border border-green-200">
+                        {registro.litrosCargados} L
+                      </span>
+                    </div>
+                    <span className="text-xs font-medium text-slate-500">
+                      Placas: {registro.vehiculo.placas || registro.vehiculo.economico || 'S/N'}
                     </span>
+                    <div className="flex justify-between items-center mt-1 pt-2 border-t border-slate-200">
+                      <span className="text-xs text-slate-400">
+                        {registro.fechaCarga 
+                          ? new Date(registro.fechaCarga).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute:'2-digit' }) 
+                          : 'Sin fecha'}
+                      </span>
+                      <span className="text-xs font-bold text-slate-600">
+                        ${registro.costoTotal}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-xs text-slate-500">Operador: {registro.operador}</span>
-                  <div className="flex justify-between items-center mt-1 pt-2 border-t border-slate-200">
-                    <span className="text-xs text-slate-400">{registro.fecha}</span>
-                    <span className={`text-xs font-medium ${registro.rendimiento === '8.2 km/l' ? 'text-amber-600' : 'text-slate-600'}`}>
-                      {registro.rendimiento}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>

@@ -5,18 +5,17 @@ const globalForPrisma = global as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
+// ==========================================
+// 1. POST: Recibe y guarda datos del celular
+// ==========================================
 export async function POST(request: Request) {
   try {
-    // 1. Recibimos los datos que mandó el celular
     const body = await request.json();
     const { vehiculoId, kilometraje, litros, importe } = body;
 
-    // NOTA: Subir imágenes reales requiere configurar un servicio en la nube
-    // Por ahora, para que tu anteproyecto funcione, guardaremos una ruta de texto simulada.
     const rutaFalsaEvidencia = "/uploads/ticket_" + Date.now() + ".jpg";
 
-    // 2. Guardamos en PostgreSQL
-   const nuevoRegistro = await prisma.registroCombustible.create({
+    const nuevoRegistro = await prisma.registroCombustible.create({
       data: {
         vehiculoId: vehiculoId,
         usuarioId: 1, 
@@ -24,17 +23,15 @@ export async function POST(request: Request) {
         litrosCargados: parseFloat(litros),
         costoTotal: parseFloat(importe),
         rutaEvidencia: rutaFalsaEvidencia,
+        // Prisma se encargará de la fecha si es @default(now()) en tu esquema
       }
     });
 
-    // 3. Convertimos el BigInt a String para que JSON no se asuste
     const registroSerializado = {
       ...nuevoRegistro,
-      id: nuevoRegistro.id.toString(), // <-- ¡Aquí está la magia!
-      // Si a futuro agregas otros BigInt, los conviertes igual
+      id: nuevoRegistro.id.toString(),
     };
 
-    // Devolvemos el registro ya convertido
     return NextResponse.json({ success: true, registro: registroSerializado }, { status: 201 });
 
   } catch (error) {
@@ -43,5 +40,30 @@ export async function POST(request: Request) {
       { error: 'Ocurrió un error al guardar en la base de datos.' },
       { status: 500 }
     );
+  }
+}
+
+// ==========================================
+// 2. GET: Envía los datos reales al Dashboard
+// ==========================================
+export async function GET() {
+  try {
+    // Ordenamos por 'fechaCarga' como está definido en tu schema.prisma
+    const registros = await prisma.registroCombustible.findMany({
+      orderBy: { fechaCarga: 'desc' },
+      include: { vehiculo: true },
+    });
+
+    // Serializamos BigInts y fechas
+    const serializados = registros.map(r => ({
+      ...r,
+      id: r.id.toString(),
+      fechaCarga: r.fechaCarga ? new Date(r.fechaCarga).toISOString() : null,
+    }));
+
+    return NextResponse.json(serializados);
+  } catch (error) {
+    console.error("Error al consultar recargas:", error);
+    return NextResponse.json({ error: 'Error al consultar la base de datos.' }, { status: 500 });
   }
 }
