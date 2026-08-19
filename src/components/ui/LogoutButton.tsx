@@ -12,12 +12,12 @@ export default function LogoutButton() {
   return (
     <button 
       onClick={handleLogout}
-      className="bg-white/10 px-4 py-2 rounded-lg hover:bg-white/20 hover:shadow-sm transition-all border border-white/10 font-medium flex items-center gap-2 text-white"
+      className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300 px-3 py-1.5 rounded-lg transition-colors font-semibold text-sm shadow-sm outline-none w-full"
     >
-      <span className="hidden sm:inline">Cerrar Sesión</span>
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+      <svg className="w-4 h-4 shrink-0 transition-transform group-hover:-translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
       </svg>
+      <span className="hidden sm:inline">Cerrar Sesión</span>
     </button>
   );
 }
