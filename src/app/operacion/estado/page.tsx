@@ -109,7 +109,7 @@ export default function EstadoPage() {
                     Cancelar
                   </button>
                 </div>
-                <div id="lector-qr-estado" className="w-full overflow-hidden rounded-lg shadow-sm border border-slate-200 bg-black" />
+                <div id="lector-qr-estado" className="w-full overflow-hidden rounded-lg shadow-sm border border-slate-200" />
               </div>
             </div>
           )}
