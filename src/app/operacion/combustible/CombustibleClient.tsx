@@ -3,36 +3,57 @@
 import React, { useState, useEffect } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
-export default function CombustibleClient() {
+interface VehiculoData {
+  marcaVehiculo: string;
+  submarcaVehiculo: string;
+  placas: string;
+  economico: string;
+}
 
-  const [vehiculo, setVehiculo] = useState(''); 
-  const [vehiculoId, setVehiculoId] = useState(''); 
-  const [buscandoQR, setBuscandoQR] = useState(false); 
+export default function CombustibleClient() {
+  const [vehiculoData, setVehiculoData] = useState<VehiculoData | null>(null);
+  const [vehiculoId, setVehiculoId] = useState('');
+  const [buscandoQR, setBuscandoQR] = useState(false);
   const [mostrarEscaner, setMostrarEscaner] = useState(false);
-  
-  // Estados del Formulario
+
   const [kilometraje, setKilometraje] = useState('');
   const [litros, setLitros] = useState('');
   const [importe, setImporte] = useState('');
   const [fotoTicket, setFotoTicket] = useState<File | null>(null);
-  
+
   const [loading, setLoading] = useState(false);
   const [exito, setExito] = useState(false);
 
-  // 1. SOLUCIÓN: Movemos la función ARRIBA del useEffect para que ya exista cuando la cámara la necesite
+  // Función para determinar el paso actual del stepper
+  const pasoActual = () => {
+    if (!vehiculoData) return 1;
+    if (!kilometraje || !litros || !importe) return 2;
+    if (!fotoTicket) return 3;
+    return 4; // todos completados
+  };
+
+  const pasos = [
+    { numero: 1, label: 'Vehículo', completado: !!vehiculoData },
+    { numero: 2, label: 'Carga', completado: !!(kilometraje && litros && importe) },
+    { numero: 3, label: 'Evidencia', completado: !!fotoTicket },
+  ];
+
   const procesarQRReal = async (qrEscaneado: string) => {
     setBuscandoQR(true);
     try {
       const respuesta = await fetch(`/api/vehiculos/${qrEscaneado}`);
-      
       if (respuesta.ok) {
         const datosVehiculo = await respuesta.json();
-        const textoMostrar = `${datosVehiculo.marcaVehiculo} ${datosVehiculo.submarcaVehiculo} - Placas: ${datosVehiculo.placas || 'N/A'}`;
-        setVehiculo(textoMostrar);
-        setVehiculoId(datosVehiculo.id); 
+        setVehiculoData({
+          marcaVehiculo: datosVehiculo.marcaVehiculo,
+          submarcaVehiculo: datosVehiculo.submarcaVehiculo,
+          placas: datosVehiculo.placas || 'S/N',
+          economico: datosVehiculo.economico || 'S/N',
+        });
+        setVehiculoId(datosVehiculo.id);
       } else {
         alert("⚠️ Código QR inválido o vehículo no encontrado en el padrón de CFE.");
-        setVehiculo('');
+        setVehiculoData(null);
         setVehiculoId('');
       }
     } catch (error) {
@@ -43,7 +64,6 @@ export default function CombustibleClient() {
     }
   };
 
-  // Efecto para inicializar la cámara cuando mostrarEscaner es true
   useEffect(() => {
     if (mostrarEscaner) {
       const scanner = new Html5QrcodeScanner(
@@ -54,18 +74,15 @@ export default function CombustibleClient() {
 
       scanner.render(
         async (textoEscaneado) => {
-          // Si lee un código con éxito:
-          scanner.clear(); // Apagamos la cámara
-          setMostrarEscaner(false); // Ocultamos la interfaz del escáner
-          await procesarQRReal(textoEscaneado); // Mandamos el texto a la base de datos
+          scanner.clear();
+          setMostrarEscaner(false);
+          await procesarQRReal(textoEscaneado);
         },
-        // 3. SOLUCIÓN: Quitamos la variable 'errorMessage' que no usábamos
         () => {
-          // Los errores de lectura continua se ignoran en silencio
+          // Errores de lectura ignorados
         }
       );
 
-      // Limpieza en caso de que el usuario cierre el componente antes de escanear
       return () => {
         scanner.clear().catch(error => console.error("Fallo al limpiar escáner", error));
       };
@@ -85,7 +102,7 @@ export default function CombustibleClient() {
           vehiculoId,
           kilometraje,
           litros,
-          importe
+          importe,
         }),
       });
 
@@ -93,13 +110,13 @@ export default function CombustibleClient() {
         setExito(true);
         setTimeout(() => {
           setExito(false);
-          setVehiculo('');
+          setVehiculoData(null);
           setVehiculoId('');
           setKilometraje('');
           setLitros('');
           setImporte('');
           setFotoTicket(null);
-        }, 2000);
+        }, 2500);
       } else {
         alert("Hubo un error al intentar guardar el registro.");
       }
@@ -113,114 +130,207 @@ export default function CombustibleClient() {
 
   return (
     <div className="p-4 w-full max-w-md mx-auto">
-      <div className="bg-white p-6 rounded-xl shadow-md border border-slate-100">
-        <h1 className="text-xl font-bold text-slate-800 mb-2 text-center">
-          Registro de Combustible
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 relative overflow-hidden">
+        {/* Decoración superior sutil */}
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-[#007A33]"></div>
+
+        <h1 className="text-xl font-extrabold text-slate-800 mb-1 text-center tracking-tight mt-2">
+          Bitácora de Carga
         </h1>
-        <p className="text-sm text-slate-500 mb-6 text-center">
-          Completa los datos de tu recarga y anexa la evidencia.
+        <p className="text-xs text-slate-500 mb-5 text-center font-medium">
+          Completa los datos y anexa la evidencia
         </p>
 
-        {/* --- VENTANA DEL ESCÁNER DE CÁMARA --- */}
+        {/* ----- STEPPER DE PROGRESO (MEJORA #2) ----- */}
+        <div className="flex items-center justify-center mb-6">
+          {pasos.map((paso, index) => (
+            <React.Fragment key={paso.numero}>
+              {/* Círculo del paso */}
+              <div className="flex flex-col items-center">
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                    paso.completado
+                      ? 'bg-[#007A33] text-white'
+                      : pasoActual() === paso.numero
+                      ? 'bg-[#007A33]/20 text-[#007A33] border-2 border-[#007A33]'
+                      : 'bg-slate-200 text-slate-500'
+                  }`}
+                >
+                  {paso.completado ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+                    </svg>
+                  ) : (
+                    paso.numero
+                  )}
+                </div>
+                <span className="text-[10px] font-semibold text-slate-600 mt-1">{paso.label}</span>
+              </div>
+              {/* Línea conectora */}
+              {index < pasos.length - 1 && (
+                <div
+                  className={`flex-1 h-0.5 mx-2 ${
+                    paso.completado ? 'bg-[#007A33]' : 'bg-slate-200'
+                  }`}
+                />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        {/* ----- MODAL DEL ESCÁNER (MEJORA #1) ----- */}
         {mostrarEscaner && (
-          <div className="mb-6 p-2 border-2 border-[#007A33] rounded-lg bg-slate-50">
-            <div className="flex justify-between items-center mb-2 px-2">
-              <span className="font-bold text-slate-700 text-sm">Escanea el código del vehículo</span>
-              <button 
-                onClick={() => setMostrarEscaner(false)}
-                className="text-red-500 text-sm font-bold hover:underline"
-              >
-                Cancelar
-              </button>
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-4 relative">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-bold text-[#007A33] text-sm flex items-center gap-1.5">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm14 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zM3 16a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm14 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                  Enfoca el código QR
+                </span>
+                <button
+                  onClick={() => setMostrarEscaner(false)}
+                  className="text-red-500 text-xs font-bold hover:bg-red-50 px-2 py-1 rounded-md transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+              <div id="lector-qr" className="w-full overflow-hidden rounded-lg shadow-sm border border-slate-200 bg-black"></div>
             </div>
-            {/* Aquí es donde la librería html5-qrcode inyecta la cámara */}
-            <div id="lector-qr" className="w-full overflow-hidden rounded-lg"></div>
           </div>
         )}
 
         {exito ? (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-6 flex flex-col items-center text-center animate-pulse">
-            <div className="w-16 h-16 bg-[#007A33] text-white rounded-full flex items-center justify-center text-3xl mb-4 shadow-lg">
-              ✓
+          <div className="bg-[#007A33]/5 border border-[#007A33]/20 rounded-xl p-6 flex flex-col items-center text-center animate-pulse my-6">
+            <div className="w-12 h-12 bg-[#007A33] text-white rounded-full flex items-center justify-center text-xl mb-3 shadow-md ring-4 ring-[#007A33]/10">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
+              </svg>
             </div>
-            <h2 className="text-xl font-bold text-[#007A33]">¡Registro Exitoso!</h2>
-            <p className="text-sm text-slate-600 mt-2">La carga de combustible ha sido guardada en el sistema.</p>
+            <h2 className="text-lg font-extrabold text-[#007A33]">¡Registro Exitoso!</h2>
+            <p className="text-xs text-slate-600 mt-1 font-medium">La carga de combustible se guardó en el sistema.</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className={`space-y-5 ${mostrarEscaner ? 'hidden' : 'block'}`}>
-            
+          <form onSubmit={handleSubmit} className="space-y-5">
             {/* Paso 1: Escanear Vehículo */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                1. Vehículo (Código QR)
+              <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wide">
+                1. Identificación
               </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={vehiculo}
-                  readOnly
-                  placeholder="Escanea el vehículo..."
-                  required
-                  className="w-full border border-slate-300 bg-slate-50 rounded-lg p-3 outline-none text-slate-600 font-medium"
-                />
+
+              {!vehiculoData ? (
                 <button
                   type="button"
-                  onClick={() => setMostrarEscaner(true)} // Activa la cámara
+                  onClick={() => setMostrarEscaner(true)}
                   disabled={buscandoQR}
-                  className="bg-slate-800 text-white px-4 rounded-lg flex items-center justify-center hover:bg-slate-700 transition disabled:opacity-50"
-                  title="Escanear QR"
+                  className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-[#007A33]/5 hover:border-[#007A33]/50 text-slate-500 hover:text-[#007A33] rounded-xl p-5 flex flex-col items-center justify-center transition-all group"
                 >
-                  {buscandoQR ? '...' : (
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                  {buscandoQR ? (
+                    <svg className="animate-spin h-6 w-6 text-[#007A33] mb-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  ) : (
+                    <svg className="h-7 w-7 mb-1.5 text-slate-400 group-hover:text-[#007A33] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
                     </svg>
                   )}
+                  <span className="text-sm font-semibold">{buscandoQR ? 'Buscando padrón...' : 'Escanear Código QR'}</span>
                 </button>
-              </div>
+              ) : (
+                <div className="bg-[#007A33]/5 border border-[#007A33]/20 rounded-xl p-3.5 flex justify-between items-center shadow-sm">
+                  <div className="flex items-center gap-3 w-full">
+                    <div className="bg-white p-2 rounded-full shadow-sm text-[#007A33] border border-[#007A33]/10 shrink-0">
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z" />
+                      </svg>
+                    </div>
+                    <div className="flex flex-col gap-1.5 w-full">
+                      <p className="font-extrabold text-slate-800 text-sm leading-tight truncate">
+                        {vehiculoData.marcaVehiculo} {vehiculoData.submarcaVehiculo}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-white border border-[#007A33]/20 shadow-sm rounded-md px-1.5 py-0.5">
+                          <svg className="w-3 h-3 text-slate-400 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
+                          </svg>
+                          <span className="text-[10px] font-mono font-bold text-slate-700 tracking-wide">{vehiculoData.placas}</span>
+                        </div>
+                        <div className="flex items-center bg-[#007A33]/10 border border-[#007A33]/20 rounded-md px-1.5 py-0.5">
+                          <svg className="w-3 h-3 text-[#007A33] mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                          </svg>
+                          <span className="text-[10px] font-bold text-[#007A33] uppercase">Eco: {vehiculoData.economico}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVehiculoData(null);
+                      setVehiculoId('');
+                      setMostrarEscaner(true);
+                    }}
+                    className="text-slate-400 hover:text-red-500 bg-white hover:bg-red-50 p-1.5 rounded-full transition-colors border border-slate-200 shrink-0"
+                    title="Cambiar vehículo"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Paso 2: Datos de Carga */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label htmlFor="kilometraje" className="block text-sm font-medium text-slate-700 mb-1">
-                  2. Kilometraje Actual
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    id="kilometraje"
-                    value={kilometraje}
-                    onChange={(e) => setKilometraje(e.target.value)}
-                    required
-                    placeholder="Ej. 45000"
-                    className="w-full border border-slate-300 rounded-lg p-3 outline-none focus:border-[#007A33] focus:ring-1 focus:ring-[#007A33]"
-                  />
-                  <span className="absolute right-4 top-3.5 text-slate-400 text-sm font-medium">km</span>
-                </div>
-              </div>
+            <div className="space-y-4 pt-3 border-t border-slate-100">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
+                2. Detalles del Ticket
+              </label>
 
-              <div>
-                <label htmlFor="litros" className="block text-sm font-medium text-slate-700 mb-1">
-                  Litros
-                </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
                 <input
                   type="number"
-                  step="0.01"
-                  id="litros"
-                  value={litros}
-                  onChange={(e) => setLitros(e.target.value)}
+                  id="kilometraje"
+                  value={kilometraje}
+                  onChange={(e) => setKilometraje(e.target.value)}
                   required
-                  placeholder="0.00"
-                  className="w-full border border-slate-300 rounded-lg p-3 outline-none focus:border-[#007A33] focus:ring-1 focus:ring-[#007A33]"
+                  placeholder="Kilometraje actual"
+                  className="w-full border border-slate-300 rounded-xl py-2.5 pl-9 pr-10 outline-none focus:border-[#007A33] focus:ring-2 focus:ring-[#007A33]/20 transition-all font-medium text-sm text-slate-700"
                 />
+                <span className="absolute right-3 top-3 text-slate-400 text-xs font-bold">KM</span>
               </div>
 
-              <div>
-                <label htmlFor="importe" className="block text-sm font-medium text-slate-700 mb-1">
-                  Importe Total
-                </label>
+              <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
-                  <span className="absolute left-3 top-3 text-slate-500 font-medium">$</span>
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    id="litros"
+                    value={litros}
+                    onChange={(e) => setLitros(e.target.value)}
+                    required
+                    placeholder="Litros"
+                    className="w-full border border-slate-300 rounded-xl py-2.5 pl-9 pr-3 outline-none focus:border-[#007A33] focus:ring-2 focus:ring-[#007A33]/20 transition-all font-medium text-sm text-slate-700"
+                  />
+                </div>
+
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] font-bold text-sm">
+                    $
+                  </div>
                   <input
                     type="number"
                     step="0.01"
@@ -228,55 +338,79 @@ export default function CombustibleClient() {
                     value={importe}
                     onChange={(e) => setImporte(e.target.value)}
                     required
-                    placeholder="0.00"
-                    className="w-full border border-slate-300 rounded-lg p-3 pl-8 outline-none focus:border-[#007A33] focus:ring-1 focus:ring-[#007A33]"
+                    placeholder="Importe"
+                    className="w-full border border-slate-300 rounded-xl py-2.5 pl-7 pr-3 outline-none focus:border-[#007A33] focus:ring-2 focus:ring-[#007A33]/20 transition-all font-medium text-sm text-slate-700"
                   />
                 </div>
               </div>
             </div>
 
             {/* Paso 3: Foto del Ticket */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                3. Fotografía del Ticket
+            <div className="pt-3 border-t border-slate-100">
+              <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wide">
+                3. Evidencia
               </label>
-              <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-slate-300 border-dashed rounded-lg hover:border-[#007A33] transition-colors bg-slate-50 relative">
-                <div className="space-y-1 text-center">
-                  <svg className="mx-auto h-12 w-12 text-slate-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <div className="flex text-sm text-slate-600 justify-center">
-                    <label htmlFor="file-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-[#007A33] hover:text-[#005c26] focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-[#007A33] px-1">
-                      <span>{fotoTicket ? 'Cambiar foto' : 'Tomar o subir foto'}</span>
-                      <input 
-                        id="file-upload" 
-                        name="file-upload" 
-                        type="file" 
-                        accept="image/*" 
+              <div className="mt-1 flex justify-center px-4 pt-4 pb-5 border-2 border-slate-300 border-dashed rounded-xl hover:border-[#007A33] hover:bg-[#007A33]/5 transition-all bg-slate-50 relative group cursor-pointer">
+                <div className="space-y-1.5 text-center">
+                  <div className={`mx-auto h-10 w-10 rounded-full flex items-center justify-center ${fotoTicket ? 'bg-green-100 text-[#007A33]' : 'bg-slate-200 text-slate-500 group-hover:bg-[#007A33]/20 group-hover:text-[#007A33]'}`}>
+                    {fotoTicket ? (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="flex text-xs text-slate-600 justify-center">
+                    <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-bold text-[#007A33] hover:text-[#005c26] focus-within:outline-none px-1">
+                      <span>{fotoTicket ? 'Cambiar fotografía' : 'Tomar o subir foto'}</span>
+                      <input
+                        id="file-upload"
+                        name="file-upload"
+                        type="file"
+                        accept="image/*"
                         capture="environment"
-                        className="sr-only" 
+                        className="sr-only"
                         onChange={(e) => {
-                          if(e.target.files && e.target.files[0]) {
+                          if (e.target.files && e.target.files[0]) {
                             setFotoTicket(e.target.files[0]);
                           }
                         }}
                       />
                     </label>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    {fotoTicket ? fotoTicket.name : 'PNG, JPG hasta 5MB'}
+                  <p className="text-[10px] text-slate-500 font-medium">
+                    {fotoTicket ? fotoTicket.name : 'Formatos PNG o JPG'}
                   </p>
                 </div>
               </div>
             </div>
 
             {/* Botón de Guardar */}
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading || !vehiculoId}
-              className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-bold rounded-lg p-4 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed mt-4 text-lg"
+              className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-bold rounded-xl py-3.5 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed mt-4 text-sm flex justify-center items-center gap-2"
             >
-              {loading ? 'Guardando registro...' : 'Guardar Carga'}
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                  </svg>
+                  Guardar Carga
+                </>
+              )}
             </button>
           </form>
         )}
