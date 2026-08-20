@@ -17,7 +17,7 @@ export default async function DashboardLayout({
 
   // Lógica de seguridad original intacta (Admin y Guardia permitidos)
   if (roleId !== 1 && roleId !== 2) {
-    if (roleId === 3) redirect('/operacion/combustible');
+    if (roleId === 3) redirect('/operacion');
     redirect('/');
   }
 

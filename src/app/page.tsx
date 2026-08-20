@@ -11,7 +11,7 @@ export default async function LoginPage() {
         const roleId = session.user?.rol as number;
         if (roleId === 1) redirect('/dashboard');
         if (roleId === 2) redirect('/guardia/pernocta');
-        if (roleId === 3) redirect('/operacion/combustible');
+        if (roleId === 3) redirect('/operacion');
     }
 
     // Si NO hay sesión, renderizamos el formulario interactivo

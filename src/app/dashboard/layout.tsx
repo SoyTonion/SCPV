@@ -19,7 +19,7 @@ export default async function DashboardLayout({
   // Redirecciones de seguridad por roles
   if (roleId !== 1) {
     if (roleId === 2) redirect('/guardia/pernocta');
-    if (roleId === 3) redirect('/operacion/combustible');
+    if (roleId === 3) redirect('/operacion');
     redirect('/');
   }
 
