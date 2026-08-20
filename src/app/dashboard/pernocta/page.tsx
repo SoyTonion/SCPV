@@ -1,8 +1,17 @@
 import { getPernoctaDashboardStats } from './actions'
+import { getResumenPernocta } from './ausentes/actions'
 import PernoctaCharts from './PernoctaCharts'
 
 export default async function PernoctaPage() {
-  const { data } = await getPernoctaDashboardStats()
+  // Ambas queries en paralelo
+  const [{ data }, resumen] = await Promise.all([
+    getPernoctaDashboardStats(),
+    getResumenPernocta(),
+  ])
+
+  const ausentesSinJustificar = resumen.success
+    ? resumen.data.ausentesSinJustificar.length
+    : 0
 
   // Datos fallback por si la base aún no tiene registros suficientes
   const donaData = data?.dona || [
@@ -29,6 +38,7 @@ export default async function PernoctaPage() {
       movimientosData={movimientosSemana}
       tiposData={tiposData}
       ultimosRegistros={ultimosRegistros}
+      ausentesSinJustificar={ausentesSinJustificar}
     />
   )
 }

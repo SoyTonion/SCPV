@@ -73,10 +73,11 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      if (session.user) { 
+      if (session.user) {
+        session.user.id = token.sub ?? '';   // <-- id del usuario (viene en token.sub por defecto)
         session.user.rol = token.rol; 
         session.user.usuario = token.usuario; 
-        session.user.rolName = token.rolName; // <-- 4. Lo exponemos en la sesión
+        session.user.rolName = token.rolName;
       }
       return session;
     },

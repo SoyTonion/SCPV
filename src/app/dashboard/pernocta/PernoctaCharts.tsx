@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link'
-import { Truck, History, ShieldCheck } from 'lucide-react'
+import { Truck, History, ShieldCheck, AlertTriangle } from 'lucide-react'
 import {
   PieChart,
   Pie,
@@ -22,6 +22,7 @@ interface PernoctaChartsProps {
   movimientosData: { day: string; escaneos: number }[]
   tiposData: { tipo: string; total: number; color: string }[]
   ultimosRegistros: { id: string; placas: string; fechaHora: string }[]
+  ausentesSinJustificar: number
 }
 
 export default function PernoctaCharts({
@@ -29,6 +30,7 @@ export default function PernoctaCharts({
   movimientosData,
   tiposData,
   ultimosRegistros,
+  ausentesSinJustificar,
 }: PernoctaChartsProps) {
   return (
     <main className="p-8 max-w-7xl mx-auto space-y-8 bg-slate-50 min-h-screen">
@@ -39,7 +41,7 @@ export default function PernoctaCharts({
       </div>
 
       {/* Tarjetas Principales estilo Banner */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         {/* Tarjeta Vehículos */}
         <Link
           href="/dashboard/pernocta/vehiculos/nuevo"
@@ -89,6 +91,33 @@ export default function PernoctaCharts({
               <h2 className="text-2xl font-bold">Autorizaciones</h2>
               <p className="text-violet-100 text-sm mt-1">
                 Permisos de Pernocta Fuera del Parque Vehicular
+              </p>
+            </div>
+          </div>
+        </Link>
+
+        {/* Tarjeta Ausentes */}
+        <Link
+          href="/dashboard/pernocta/ausentes"
+          className="group relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#b45309] via-[#d97706] to-[#fbbf24] p-6 text-white shadow-lg transition-all hover:scale-[1.01] hover:shadow-xl"
+        >
+          <div className="flex items-center gap-5">
+            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-white/10 backdrop-blur-md">
+              <AlertTriangle className="h-8 w-8 text-white" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-bold">Ausentes</h2>
+                {ausentesSinJustificar > 0 && (
+                  <span className="bg-white text-orange-700 text-xs font-black px-2 py-0.5 rounded-full">
+                    {ausentesSinJustificar}
+                  </span>
+                )}
+              </div>
+              <p className="text-amber-100 text-sm mt-1">
+                {ausentesSinJustificar > 0
+                  ? `${ausentesSinJustificar} vehículo${ausentesSinJustificar > 1 ? 's' : ''} sin justificar hoy`
+                  : 'Reporte de no escaneados hoy'}
               </p>
             </div>
           </div>
