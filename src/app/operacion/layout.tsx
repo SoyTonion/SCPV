@@ -11,6 +11,13 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const session = await getServerSession(authOptions);
+      const roleId = session?.user?.rol as number;
+
+    if (roleId !== 1 && roleId !== 3) {
+      if (roleId === 2) redirect('/guardia/pernocta');
+      redirect('/');
+    }
+    
   if (!session) redirect('/');
 
   const userName = session?.user?.name || session?.user?.usuario || 'Usuario CFE';
