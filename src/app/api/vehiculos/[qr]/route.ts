@@ -1,16 +1,23 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
-
-const globalForPrisma = global as unknown as { prisma: PrismaClient };
-const prisma = globalForPrisma.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ qr: string }> } // <-- Le avisamos a TypeScript que es una Promesa
+  { params }: { params: Promise<{ qr: string }> }
 ) {
   try {
-    // 1. Extraemos el texto esperando (await) a que los parámetros estén listos
+    // 1. Verificar que hay una sesión activa
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: 'No autorizado.' },
+        { status: 401 }
+      );
+    }
+
+    // 2. Extraemos el texto esperando (await) a que los parámetros estén listos
     const { qr } = await params;
     
     // 2. Buscamos el vehículo en PostgreSQL

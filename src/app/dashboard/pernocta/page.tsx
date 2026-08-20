@@ -10,14 +10,14 @@ export default async function PernoctaPage() {
     { name: 'En Tránsito/Fuera', value: 0, color: '#E07A5F' },
   ]
 
-  const movimientosSemana = [
-    { day: 'Lun', entradas: 0, salidas: 0 },
-    { day: 'Mar', entradas: 0, salidas: 0 },
-    { day: 'Mié', entradas: 0, salidas: 0 },
-    { day: 'Jue', entradas: 0, salidas: 0 },
-    { day: 'Vie', entradas: 0, salidas: 0 },
-    { day: 'Sáb', entradas: 0, salidas: 0 },
-    { day: 'Dom', entradas: 0, salidas: 0 },
+  const movimientosSemana = data?.movimientosSemana || [
+    { day: 'Lun', escaneos: 0 },
+    { day: 'Mar', escaneos: 0 },
+    { day: 'Mié', escaneos: 0 },
+    { day: 'Jue', escaneos: 0 },
+    { day: 'Vie', escaneos: 0 },
+    { day: 'Sáb', escaneos: 0 },
+    { day: 'Dom', escaneos: 0 },
   ]
 
   const tiposData = data?.tipos || []

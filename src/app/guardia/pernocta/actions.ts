@@ -15,6 +15,10 @@ export type ResultadoEscaneo =
         submarca: string;
         departamento: string | null;
       };
+      // null = vehículo aplica pernocta normal en base
+      // string = tiene autorización vigente fuera de base (motivo)
+      // false = NO aplica pernocta y NO tiene autorización
+      estadoPernocta: string | null | false;
     }
   | { ok: false; error: string };
 
@@ -22,7 +26,6 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
   try {
     // 1. Validar la sesión de NextAuth
     const session = await getServerSession(authOptions);
-
     if (!session?.user) {
       return { ok: false, error: "No hay una sesión activa." };
     }
@@ -67,7 +70,17 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
-    // 6. Obtener o crear el rondín abierto de hoy para el guardia
+    // 6. Verificar si tiene una autorización de pernocta vigente para hoy
+    const autorizacion = await prisma.autorizacionPernocta.findFirst({
+      where: {
+        vehiculoId: vehiculo.id,
+        fechaInicio: { lte: hoy },
+        fechaFin: { gte: hoy },
+      },
+      select: { motivo: true },
+    });
+
+    // 7. Obtener o crear el rondín abierto de hoy para el guardia
     let rondin = await prisma.rondin.findFirst({
       where: {
         guardiaId,
@@ -86,7 +99,7 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
       });
     }
 
-    // 7. Guardar el registro de escaneo
+    // 8. Guardar el registro de escaneo
     await prisma.escaneo.create({
       data: {
         rondinId: rondin.id,
@@ -94,6 +107,23 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
         dispositivo: "Escáner Web",
       },
     });
+
+    // 9. Determinar el estado de pernocta para informar al guardia:
+    //    - null  → aplica pernocta normal, todo en orden
+    //    - string → tiene autorización vigente (se incluye el motivo)
+    //    - false → NO aplica pernocta y NO tiene autorización (posible incidencia)
+    let estadoPernocta: string | null | false;
+
+    if (autorizacion) {
+      // Tiene autorización vigente — puede estar fuera del parque
+      estadoPernocta = autorizacion.motivo ?? "Autorizado sin motivo especificado";
+    } else if (vehiculo.vehiculoPernocta) {
+      // Aplica pernocta normal, se espera que esté en base
+      estadoPernocta = null;
+    } else {
+      // No aplica pernocta y no tiene autorización
+      estadoPernocta = false;
+    }
 
     return {
       ok: true,
@@ -105,6 +135,7 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
         submarca: vehiculo.submarcaVehiculo,
         departamento: vehiculo.departamento?.nombreDepartamento ?? null,
       },
+      estadoPernocta,
     };
   } catch (error) {
     console.error("Error en registrarEscaneo:", error);

@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 
 // ============================================================
@@ -30,18 +31,57 @@ export async function getPernoctaDashboardStats() {
     }))
 
     // 3. Últimos 5 Escaneos de la bitácora
-    let ultimosRegistros: any[] = []
+    let ultimosRegistros: { id: string; placas: string; fechaHora: string }[] = []
     try {
       const escaneosRaw = await prisma.escaneo.findMany({
         take: 5,
-        orderBy: { id: 'desc' },
-        include: { vehiculo: true },
+        orderBy: { fechaHora: 'desc' },
+        include: { vehiculo: { select: { placas: true } } },
       })
 
-      ultimosRegistros = JSON.parse(JSON.stringify(escaneosRaw))
+      ultimosRegistros = escaneosRaw.map((e) => ({
+        id: e.id.toString(),
+        placas: e.vehiculo.placas ?? 'S/P',
+        fechaHora: e.fechaHora.toISOString(),
+      }))
     } catch {
       ultimosRegistros = []
     }
+
+    // 4. Escaneos de la semana actual agrupados por día
+    const hoy = new Date()
+    // Lunes de la semana actual
+    const lunes = new Date(hoy)
+    lunes.setHours(0, 0, 0, 0)
+    lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7))
+
+    // Domingo al final de la semana
+    const domingo = new Date(lunes)
+    domingo.setDate(lunes.getDate() + 6)
+    domingo.setHours(23, 59, 59, 999)
+
+    const escaneosSemanales = await prisma.escaneo.findMany({
+      where: {
+        fechaHora: { gte: lunes, lte: domingo },
+      },
+      select: { fechaHora: true },
+    })
+
+    const dias = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+    const conteosPorDia: Record<string, number> = {
+      Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0, Dom: 0,
+    }
+
+    for (const escaneo of escaneosSemanales) {
+      // getDay() retorna 0=Dom,1=Lun...6=Sáb; convertimos a índice 0=Lun
+      const idx = (escaneo.fechaHora.getDay() + 6) % 7
+      conteosPorDia[dias[idx]] += 1
+    }
+
+    const movimientosSemana = dias.map((day) => ({
+      day,
+      escaneos: conteosPorDia[day],
+    }))
 
     return {
       success: true,
@@ -52,6 +92,7 @@ export async function getPernoctaDashboardStats() {
         ],
         tipos,
         ultimosRegistros,
+        movimientosSemana,
       },
     }
   } catch (error) {
@@ -108,6 +149,9 @@ export async function togglePermisoPernocta(vehiculoId: string, nuevoEstado: boo
       where: { id: vehiculoId },
       data: { vehiculoPernocta: nuevoEstado },
     })
+
+    revalidatePath('/dashboard/pernocta/vehiculos/nuevo')
+    revalidatePath('/dashboard/pernocta')
 
     return {
       success: true,
