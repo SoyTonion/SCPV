@@ -1,75 +1,46 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useTransition } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
+import React, { useState, useEffect } from 'react';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 import { registrarEscaneo, type ResultadoEscaneo } from './actions';
 
 export default function ScannerPernocta() {
-  const [codigoEscaneado, setCodigoEscaneado] = useState<string | null>(null);
+  const [mostrarEscaner, setMostrarEscaner] = useState(false);
+  const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoEscaneo | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const html5QrcodeRef = useRef<Html5Qrcode | null>(null);
-  // Flag para evitar doble stop() cuando onScanSuccess y el cleanup del useEffect
-  // se ejecutan al mismo tiempo tras el re-render
-  const deteniendoRef = useRef(false);
+
+  const procesarQR = async (token: string) => {
+    setProcesando(true);
+    const res = await registrarEscaneo(token);
+    setResultado(res);
+    setProcesando(false);
+  };
 
   useEffect(() => {
-    if (codigoEscaneado) return;
+    if (!mostrarEscaner) return;
 
-    // abort permite que el cleanup cancele el inicio si React desmonta
-    // antes de que start() termine (caso Strict Mode en desarrollo)
-    let aborted = false;
-    deteniendoRef.current = false;
+    const scanner = new Html5QrcodeScanner(
+      'lector-qr-pernocta',
+      { fps: 10, qrbox: { width: 250, height: 250 } },
+      false
+    );
 
-    const html5Qrcode = new Html5Qrcode("reader");
-    html5QrcodeRef.current = html5Qrcode;
-
-    html5Qrcode.start(
-      { facingMode: "environment" },
-      { fps: 10, qrbox: { width: 220, height: 220 } },
-      (decodedText) => {
-        if (aborted || deteniendoRef.current) return;
-        deteniendoRef.current = true;
-
-        setCodigoEscaneado(decodedText);
-        setResultado(null);
-
-        html5Qrcode.stop()
-          .then(() => html5Qrcode.clear())
-          .catch((err) => console.debug("Stop tras escaneo:", err));
-
-        startTransition(async () => {
-          const res = await registrarEscaneo(decodedText);
-          setResultado(res);
-        });
+    scanner.render(
+      async (texto) => {
+        scanner.clear();
+        setMostrarEscaner(false);
+        await procesarQR(texto);
       },
-      () => {}
-    ).catch((err) => {
-      if (!aborted) console.error("Error iniciando cámara:", err);
-    });
+      () => { /* errores de lectura continua se ignoran */ }
+    );
 
     return () => {
-      aborted = true;
-      if (!deteniendoRef.current) {
-        deteniendoRef.current = true;
-        // Limpiar el div manualmente por si start() nunca terminó
-        // (evita el segundo video que deja Strict Mode)
-        if (html5QrcodeRef.current?.isScanning) {
-          html5QrcodeRef.current.stop()
-            .then(() => html5QrcodeRef.current?.clear())
-            .catch(() => {
-              // Si stop falla (aún arrancando), intentar limpiar el div directo
-              try { html5QrcodeRef.current?.clear(); } catch { /* ignorar */ }
-            });
-        } else {
-          try { html5QrcodeRef.current?.clear(); } catch { /* ignorar */ }
-        }
-      }
+      scanner.clear().catch(() => {});
     };
-  }, [codigoEscaneado]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mostrarEscaner]);
 
-  const reiniciarEscaneo = () => {
-    setCodigoEscaneado(null);
+  const reiniciar = () => {
     setResultado(null);
   };
 
@@ -102,91 +73,124 @@ export default function ScannerPernocta() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center p-4 mt-4">
-      <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md border border-slate-100">
+    <div className="p-4 w-full max-w-md mx-auto">
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 relative overflow-hidden">
+        {/* Barra superior verde */}
+        <div className="absolute top-0 left-0 w-full h-1.5 bg-[#007A33]" />
 
-        {/* Esperando escaneo */}
-        {!codigoEscaneado ? (
-          <div className="flex flex-col items-center">
-            <h2 className="text-xl font-bold text-slate-800 mb-4 text-center">
-              Control de Pernocta
-            </h2>
-            <div id="reader" className="w-full rounded-lg overflow-hidden border-2 border-[#007A33]" />
-            <p className="text-sm text-slate-500 mt-4 text-center font-medium">
-              Apunta la cámara al código QR del vehículo
-            </p>
+        <h1 className="text-xl font-extrabold text-slate-800 mb-1 text-center tracking-tight mt-2">
+          Control de Pernocta
+        </h1>
+        <p className="text-xs text-slate-500 mb-6 text-center font-medium">
+          Escanea el código QR del vehículo para registrar su pernocta
+        </p>
+
+        {/* Modal de cámara */}
+        {mostrarEscaner && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-4 relative">
+              <div className="flex justify-between items-center mb-3">
+                <span className="font-bold text-[#007A33] text-sm flex items-center gap-1.5">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm14 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zM3 16a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm14 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
+                  </svg>
+                  Enfoca el código QR
+                </span>
+                <button
+                  onClick={() => setMostrarEscaner(false)}
+                  className="text-red-500 text-xs font-bold hover:bg-red-50 px-2 py-1 rounded-md transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+              <div id="lector-qr-pernocta" className="w-full overflow-hidden rounded-lg shadow-sm border border-slate-200" />
+            </div>
           </div>
+        )}
 
-        /* Procesando */
-        ) : isPending || resultado === null ? (
+        {/* Estado: procesando */}
+        {procesando ? (
           <div className="flex flex-col items-center text-center py-10">
             <div className="w-10 h-10 border-4 border-[#007A33] border-t-transparent rounded-full animate-spin mb-4" />
             <p className="text-slate-500 font-medium">Registrando escaneo...</p>
           </div>
 
-        /* Éxito */
-        ) : resultado.ok ? (() => {
-          const v = getVariante(resultado);
-          return (
-            <div className="flex flex-col items-center text-center py-6">
-              <div className={`w-16 h-16 ${v.iconoBg} rounded-full flex items-center justify-center text-3xl mb-4`}>
-                {v.icono}
-              </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-3">{v.titulo}</h3>
+        /* Estado: con resultado */
+        ) : resultado ? (
+          resultado.ok ? (() => {
+            const v = getVariante(resultado);
+            return (
+              <div className="flex flex-col items-center text-center py-4">
+                <div className={`w-16 h-16 ${v.iconoBg} rounded-full flex items-center justify-center text-3xl mb-4`}>
+                  {v.icono}
+                </div>
+                <h3 className="text-2xl font-bold text-slate-800 mb-3">{v.titulo}</h3>
 
-              <span className={`px-3 py-1 rounded-full text-xs font-bold mb-4 ${v.badge.clase}`}>
-                {v.badge.texto}
-              </span>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold mb-4 ${v.badge.clase}`}>
+                  {v.badge.texto}
+                </span>
 
-              <div className="text-sm text-slate-600 space-y-1 mb-4 w-full text-left bg-slate-50 rounded-lg p-3">
-                <p><strong>Económico:</strong> {resultado.vehiculo.economico ?? '—'}</p>
-                <p><strong>Placas:</strong> {resultado.vehiculo.placas ?? '—'}</p>
-                <p><strong>Vehículo:</strong> {resultado.vehiculo.marca} {resultado.vehiculo.submarca}</p>
-                {resultado.vehiculo.departamento && (
-                  <p><strong>Departamento:</strong> {resultado.vehiculo.departamento}</p>
+                <div className="text-sm text-slate-600 space-y-1 mb-4 w-full text-left bg-slate-50 rounded-lg p-3">
+                  <p><strong>Económico:</strong> {resultado.vehiculo.economico ?? '—'}</p>
+                  <p><strong>Placas:</strong> {resultado.vehiculo.placas ?? '—'}</p>
+                  <p><strong>Vehículo:</strong> {resultado.vehiculo.marca} {resultado.vehiculo.submarca}</p>
+                  {resultado.vehiculo.departamento && (
+                    <p><strong>Departamento:</strong> {resultado.vehiculo.departamento}</p>
+                  )}
+                </div>
+
+                {v.motivo && (
+                  <div className="w-full bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-left">
+                    <p className="text-xs font-semibold text-blue-700 mb-1">Motivo de autorización:</p>
+                    <p className="text-sm text-blue-800">{v.motivo}</p>
+                  </div>
                 )}
+
+                {resultado.estadoPernocta === false && (
+                  <div className="w-full bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 text-left">
+                    <p className="text-xs font-semibold text-orange-700 mb-1">Atención:</p>
+                    <p className="text-sm text-orange-800">
+                      Este vehículo no está autorizado para pernoctar fuera del parque vehicular. Reporta la situación al supervisor.
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  onClick={reiniciar}
+                  className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-semibold rounded-lg p-3 transition-colors"
+                >
+                  Escanear otro vehículo
+                </button>
               </div>
-
-              {v.motivo && (
-                <div className="w-full bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-left">
-                  <p className="text-xs font-semibold text-blue-700 mb-1">Motivo de autorización:</p>
-                  <p className="text-sm text-blue-800">{v.motivo}</p>
-                </div>
-              )}
-
-              {resultado.estadoPernocta === false && (
-                <div className="w-full bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 text-left">
-                  <p className="text-xs font-semibold text-orange-700 mb-1">Atención:</p>
-                  <p className="text-sm text-orange-800">
-                    Este vehículo no está autorizado para pernoctar fuera del parque vehicular. Reporta la situación al supervisor.
-                  </p>
-                </div>
-              )}
-
+            );
+          })() : (
+            <div className="flex flex-col items-center text-center py-6">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-3xl mb-4">
+                ✕
+              </div>
+              <h3 className="text-2xl font-bold text-slate-800 mb-2">No se pudo registrar</h3>
+              <p className="text-sm text-slate-500 mb-6">{resultado.error}</p>
               <button
-                onClick={reiniciarEscaneo}
+                onClick={reiniciar}
                 className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-semibold rounded-lg p-3 transition-colors"
               >
-                Escanear otro vehículo
+                Intentar de nuevo
               </button>
             </div>
-          );
-        })() : (
+          )
 
-        /* Error */
-          <div className="flex flex-col items-center text-center py-6">
-            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-3xl mb-4">
-              ✕
-            </div>
-            <h3 className="text-2xl font-bold text-slate-800 mb-2">No se pudo registrar</h3>
-            <p className="text-sm text-slate-500 mb-6">{resultado.error}</p>
-            <button
-              onClick={reiniciarEscaneo}
-              className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-semibold rounded-lg p-3 transition-colors"
-            >
-              Intentar de nuevo
-            </button>
-          </div>
+        /* Estado: esperando */
+        ) : (
+          <button
+            type="button"
+            onClick={() => setMostrarEscaner(true)}
+            className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-[#007A33]/5 hover:border-[#007A33]/50 text-slate-500 hover:text-[#007A33] rounded-xl p-6 flex flex-col items-center justify-center transition-all group"
+          >
+            <svg className="h-8 w-8 mb-2 text-slate-400 group-hover:text-[#007A33] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+            </svg>
+            <span className="text-sm font-semibold">Escanear Código QR</span>
+          </button>
         )}
 
       </div>
