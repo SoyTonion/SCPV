@@ -31,19 +31,19 @@ export default async function DashboardLayout({
       <header className="bg-white/80 backdrop-blur-md border-b-4 border-[#007A33]/20 z-10 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-[#007A33]/5 to-transparent pointer-events-none"></div>
 
-        <div className="max-w-7xl mx-auto py-2 px-4 flex justify-between items-center relative z-10">
+        <div className="max-w-7xl mx-auto py-4 px-4 flex justify-between items-center relative z-10">
           
           {/* Lado Izquierdo: Logo y Nombre del Módulo */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4.5">
             <Image 
-              src="/CFE_logo.png" 
+              src="/CFE_Logo_Test.svg"
               alt="Logo CFE" 
               width={100}
               height={100}
-              className="h-14 w-auto object-contain" 
+              className="h-7 w-auto object-contain" 
             />
             <span className="text-sm border-l-2 border-[#007A33]/20 pl-4 font-bold tracking-wide text-[#007A33] leading-tight">
-              Módulo de <br className="sm:hidden" />Operaciones
+              Módulo de <br className="sm:hidden" />Guardia
             </span>
           </div>
 

@@ -67,20 +67,21 @@ export default function LoginClientForm() {
                 <div className="absolute -bottom-20 -left-20 w-96 h-96 rounded-full bg-[#007A33]/5 blur-3xl"></div>
             </div>
 
-            {/* CABECERA con borde verde más grueso */}
-            <header className="bg-white/80 backdrop-blur-md border-b-4 border-[#007A33]/20 py-1 md:py-2 px-4 z-10 relative">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <div className="flex items-center">
+            {/* CABECERA */}
+            <header className="bg-white/80 backdrop-blur-md border-b-4 border-[#007A33]/20 z-10 relative overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-[#007A33]/5 to-transparent pointer-events-none"></div>
+                <div className="max-w-7xl mx-auto py-4 px-4 flex items-center relative z-10">
+                    <div className="flex items-center space-x-4">
                         <Image 
-                            src="/CFE_logo.png" 
+                            src="/CFE_Logo_Test.svg"
                             alt="Logo CFE" 
-                            width={80}
-                            height={80}
-                            className="h-20 w-auto mr-2 object-contain" 
+                            width={100}
+                            height={100}
+                            className="h-7 w-auto object-contain" 
                         />
-                        <div className="text-sm border-l-2 border-[#007A33]/20 pl-3 font-semibold tracking-wide text-[#007A33]">
-                            Comisión Federal de Electricidad®
-                        </div>
+                        <span className="text-sm border-l-2 border-[#007A33]/20 pl-4 font-bold tracking-wide text-[#007A33]">
+                            Sistema de Control Vehicular
+                        </span>
                     </div>
                 </div>
             </header>
