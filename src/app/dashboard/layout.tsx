@@ -39,7 +39,7 @@ export default async function DashboardLayout({
           {/* Lado Izquierdo: Logo y Nombre */}
           <div className="flex items-center space-x-4.5">
             <Image 
-              src="/CFE_Logo_Test.svg"
+              src="/cfe_logo.svg"
               alt="Logo CFE" 
               width={100}
               height={100}

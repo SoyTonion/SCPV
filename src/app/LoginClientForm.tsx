@@ -73,7 +73,7 @@ export default function LoginClientForm() {
                 <div className="max-w-7xl mx-auto py-4 px-4 flex items-center relative z-10">
                     <div className="flex items-center space-x-4">
                         <Image 
-                            src="/CFE_Logo_Test.svg"
+                            src="/cfe_logo.svg"
                             alt="Logo CFE" 
                             width={100}
                             height={100}
