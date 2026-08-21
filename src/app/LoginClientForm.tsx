@@ -46,7 +46,7 @@ export default function LoginClientForm() {
                 router.push('/guardia/pernocta'); 
             } 
             else if (userRole === 3) {
-                router.push('/operacion/combustible'); 
+                router.push('/operacion'); 
             } 
             else {
                 setError('Error de permisos. Contacte al administrador.');
