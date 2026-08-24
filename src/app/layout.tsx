@@ -1,9 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Control Vehicular | CFE",
   description: "Plataforma integral para el control de la flotilla operativa.",
+};
+
+// viewport-fit=cover permite que env(safe-area-inset-*) funcione en iOS (notch/home indicator)
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
