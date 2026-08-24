@@ -80,7 +80,23 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
       select: { motivo: true },
     });
 
-    // 7. Obtener o crear el rondín abierto de hoy para el guardia
+    // 7. Cerrar rondines ABIERTOS de días anteriores para este guardia
+    const ayer = new Date(hoy);
+    ayer.setDate(hoy.getDate() - 1);
+
+    await prisma.rondin.updateMany({
+      where: {
+        guardiaId,
+        estado: "ABIERTO",
+        fecha: { lt: hoy },
+      },
+      data: {
+        estado: "CERRADO",
+        fin: ayer, // fin aproximado: medianoche del día anterior
+      },
+    });
+
+    // 8. Obtener o crear el rondín abierto de hoy para el guardia
     let rondin = await prisma.rondin.findFirst({
       where: {
         guardiaId,
@@ -140,5 +156,49 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
   } catch (error) {
     console.error("Error en registrarEscaneo:", error);
     return { ok: false, error: "Error interno al procesar el escaneo en la base de datos." };
+  }
+}
+
+// ============================================================
+// CERRAR RONDÍN ACTIVO DEL GUARDIA (cierre manual)
+// ============================================================
+export type ResultadoCierreRondin =
+  | { ok: true; totalEscaneos: number; inicio: string; fin: string }
+  | { ok: false; error: string };
+
+export async function cerrarRondinActivo(): Promise<ResultadoCierreRondin> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return { ok: false, error: "No hay sesión activa." };
+
+    const guardiaId = parseInt((session.user as any).id, 10);
+    if (isNaN(guardiaId)) return { ok: false, error: "No se pudo identificar al guardia." };
+
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    const rondin = await prisma.rondin.findFirst({
+      where: { guardiaId, estado: "ABIERTO", fecha: hoy },
+      include: { _count: { select: { escaneos: true } } },
+    });
+
+    if (!rondin) return { ok: false, error: "No hay un rondín activo para cerrar hoy." };
+
+    const ahora = new Date();
+
+    await prisma.rondin.update({
+      where: { id: rondin.id },
+      data: { estado: "CERRADO", fin: ahora },
+    });
+
+    return {
+      ok: true,
+      totalEscaneos: rondin._count.escaneos,
+      inicio: rondin.inicio.toISOString(),
+      fin: ahora.toISOString(),
+    };
+  } catch (error) {
+    console.error("Error en cerrarRondinActivo:", error);
+    return { ok: false, error: "Error interno al cerrar el rondín." };
   }
 }

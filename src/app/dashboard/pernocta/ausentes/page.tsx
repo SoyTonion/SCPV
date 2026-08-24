@@ -4,16 +4,19 @@ import Link from 'next/link'
 function TarjetaConteo({
   valor,
   label,
+  sublabel,
   color,
 }: {
   valor: number
   label: string
+  sublabel?: string
   color: string
 }) {
   return (
     <div className={`rounded-2xl border p-5 bg-white shadow-sm ${color}`}>
       <p className="text-3xl font-bold">{valor}</p>
       <p className="text-sm mt-1 font-medium">{label}</p>
+      {sublabel && <p className="text-xs mt-0.5 opacity-70">{sublabel}</p>}
     </div>
   )
 }
@@ -27,7 +30,7 @@ function TablaVehiculos({
 }) {
   if (vehiculos.length === 0) {
     return (
-      <p className="text-sm text-slate-400 italic py-4 text-center">
+      <p className="text-sm text-slate-400 italic py-6 text-center">
         Ninguno — todo en orden.
       </p>
     )
@@ -53,7 +56,12 @@ function TablaVehiculos({
         </thead>
         <tbody className="divide-y divide-slate-100 text-slate-700">
           {vehiculos.map((v) => (
-            <tr key={v.id} className={`transition-colors ${tipo === 'alerta' ? 'hover:bg-red-50/40' : 'hover:bg-blue-50/40'}`}>
+            <tr
+              key={v.id}
+              className={`transition-colors ${
+                tipo === 'alerta' ? 'hover:bg-red-50/40' : 'hover:bg-blue-50/40'
+              }`}
+            >
               <td className="px-4 py-3">
                 <div className="font-bold text-slate-900">{v.economico}</div>
                 <div className="text-xs font-mono text-slate-400">{v.placas}</div>
@@ -90,7 +98,15 @@ export default async function AusentesPage() {
   }
 
   const { data } = resultado
-  const totalAusentes = data.ausentesAutorizados.length + data.ausentesSinJustificar.length
+
+  // Vehículos de la flota que sí fueron verificados hoy
+  const verificados = data.escaneadosOk
+  // Total no escaneados = flota - verificados
+  const totalNoEscaneados = data.totalFlota - verificados
+  // De esos, cuántos tienen autorización = están bien
+  const conAutorizacion = data.ausentesAutorizados.length
+  // Sin justificar = los que realmente son alerta
+  const sinJustificar = data.ausentesSinJustificar.length
 
   return (
     <main className="p-8 max-w-7xl mx-auto space-y-8">
@@ -98,7 +114,7 @@ export default async function AusentesPage() {
       {/* Encabezado */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#145c2c]">Reporte de Ausentes — Hoy</h1>
+          <h1 className="text-2xl font-bold text-[#145c2c]">Reporte de Pernocta — Hoy</h1>
           <p className="text-slate-500 text-sm mt-1 capitalize">{data.fecha}</p>
         </div>
         <Link
@@ -109,58 +125,103 @@ export default async function AusentesPage() {
         </Link>
       </div>
 
+      {/* Aviso si no hay rondín hoy */}
+      {!data.rondinActivo && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <span className="text-2xl">🕐</span>
+          <div>
+            <p className="font-bold text-amber-800">El rondín de hoy aún no ha comenzado</p>
+            <p className="text-sm text-amber-700 mt-0.5">
+              No se han registrado escaneos por ningún guardia. Los vehículos aparecerán como verificados conforme avance el rondín.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Tarjetas de resumen */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <TarjetaConteo
           valor={data.totalFlota}
-          label="Total flota pernocta"
+          label="Flota que debe pernoctar"
+          sublabel="Con vehiculoPernocta activo"
           color="border-slate-200 text-slate-700"
         />
         <TarjetaConteo
-          valor={data.escaneados}
-          label="Escaneados hoy"
+          valor={verificados}
+          label="Verificados en el rondín"
+          sublabel="Escaneados y confirmados"
           color="border-emerald-200 text-emerald-700"
         />
         <TarjetaConteo
-          valor={data.ausentesAutorizados.length}
-          label="Ausentes autorizados"
+          valor={conAutorizacion}
+          label="Ausentes con autorización"
+          sublabel="Fuera pero justificados"
           color="border-blue-200 text-blue-700"
         />
         <TarjetaConteo
-          valor={data.ausentesSinJustificar.length}
-          label="Sin justificar"
+          valor={sinJustificar}
+          label="Sin verificar ni justificar"
+          sublabel={data.rondinActivo ? 'Requieren atención' : 'Rondín pendiente'}
           color={
-            data.ausentesSinJustificar.length > 0
+            sinJustificar > 0 && data.rondinActivo
               ? 'border-red-300 text-red-700 bg-red-50'
               : 'border-slate-200 text-slate-400'
           }
         />
       </div>
 
-      {/* Banner de alerta si hay sin justificar */}
-      {data.ausentesSinJustificar.length > 0 && (
+      {/* Barra de progreso del rondín */}
+      {data.rondinActivo && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+          <div className="flex justify-between text-sm font-semibold text-slate-700 mb-2">
+            <span>Progreso del rondín</span>
+            <span>{verificados} de {data.totalFlota} verificados</span>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-3">
+            <div
+              className="bg-emerald-500 h-3 rounded-full transition-all"
+              style={{ width: `${data.totalFlota > 0 ? Math.round((verificados / data.totalFlota) * 100) : 0}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-xs text-slate-400 mt-1">
+            <span>0%</span>
+            <span className="font-medium text-emerald-600">
+              {data.totalFlota > 0 ? Math.round((verificados / data.totalFlota) * 100) : 0}% completado
+            </span>
+            <span>100%</span>
+          </div>
+        </div>
+      )}
+
+      {/* Banner de alerta solo si hay rondín Y hay sin justificar */}
+      {data.rondinActivo && sinJustificar > 0 && (
         <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-2xl p-4">
           <span className="text-2xl">⚠️</span>
           <div>
             <p className="font-bold text-red-800">
-              {data.ausentesSinJustificar.length} vehículo{data.ausentesSinJustificar.length > 1 ? 's' : ''} sin justificar
+              {sinJustificar} vehículo{sinJustificar > 1 ? 's' : ''} no verificado{sinJustificar > 1 ? 's' : ''} ni justificado{sinJustificar > 1 ? 's' : ''}
             </p>
             <p className="text-sm text-red-600 mt-0.5">
-              No se detectaron en el rondín de hoy y no cuentan con autorización vigente. Verifica su ubicación o genera una autorización desde el módulo correspondiente.
+              No aparecieron en el rondín de hoy y no tienen autorización vigente. Verifica su ubicación o genera una autorización.
             </p>
           </div>
         </div>
       )}
 
-      {/* Sección 1: Sin justificar (la alerta principal) */}
+      {/* Sección 1: Sin justificar */}
       <div className="bg-white rounded-2xl border border-red-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-red-100 flex items-center gap-3">
           <span className="h-3 w-3 rounded-full bg-red-500" />
-          <h2 className="font-bold text-slate-800">
-            Ausentes sin justificar
-          </h2>
+          <div>
+            <h2 className="font-bold text-slate-800">No verificados ni justificados</h2>
+            <p className="text-xs text-slate-500">
+              {data.rondinActivo
+                ? 'No fueron escaneados hoy y no tienen autorización vigente'
+                : 'El rondín aún no comienza — este listado se actualizará conforme avance'}
+            </p>
+          </div>
           <span className="ml-auto text-xs font-semibold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
-            {data.ausentesSinJustificar.length}
+            {sinJustificar}
           </span>
         </div>
         <TablaVehiculos vehiculos={data.ausentesSinJustificar} tipo="alerta" />
@@ -170,25 +231,28 @@ export default async function AusentesPage() {
       <div className="bg-white rounded-2xl border border-blue-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-blue-100 flex items-center gap-3">
           <span className="h-3 w-3 rounded-full bg-blue-500" />
-          <h2 className="font-bold text-slate-800">
-            Ausentes con autorización vigente
-          </h2>
+          <div>
+            <h2 className="font-bold text-slate-800">Ausentes con autorización vigente</h2>
+            <p className="text-xs text-slate-500">
+              No fueron escaneados pero tienen permiso registrado — no es una alerta
+            </p>
+          </div>
           <span className="ml-auto text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-            {data.ausentesAutorizados.length}
+            {conAutorizacion}
           </span>
         </div>
         <TablaVehiculos vehiculos={data.ausentesAutorizados} tipo="autorizado" />
       </div>
 
-      {/* Sección 3: Resumen si todo está en orden */}
-      {totalAusentes === 0 && (
+      {/* Todo en orden */}
+      {data.rondinActivo && totalNoEscaneados === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-3xl mb-4">
             ✓
           </div>
-          <h3 className="text-xl font-bold text-slate-800">Todo en orden</h3>
+          <h3 className="text-xl font-bold text-slate-800">Rondín completado</h3>
           <p className="text-slate-500 text-sm mt-1">
-            Los {data.escaneados} vehículos de la flota fueron verificados en el rondín de hoy.
+            Los {verificados} vehículos de la flota fueron verificados en el rondín de hoy.
           </p>
         </div>
       )}

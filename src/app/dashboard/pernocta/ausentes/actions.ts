@@ -17,10 +17,12 @@ export type VehiculoAusente = {
 
 export type ResumenPernocta = {
   fecha: string
-  totalFlota: number          // vehículos con vehiculoPernocta: true
-  escaneados: number          // de esos, cuántos tuvieron escaneo hoy
-  ausentesAutorizados: VehiculoAusente[]   // ausentes pero con autorización vigente
-  ausentesSinJustificar: VehiculoAusente[] // ausentes sin ninguna autorización
+  totalFlota: number                       // vehículos con vehiculoPernocta: true
+  escaneados: number                       // de esos, cuántos tuvieron escaneo hoy
+  rondinActivo: boolean                    // si hubo al menos un rondín hoy
+  ausentesAutorizados: VehiculoAusente[]   // no escaneados pero con autorización vigente
+  ausentesSinJustificar: VehiculoAusente[] // no escaneados y sin ninguna autorización
+  escaneadosOk: number                     // escaneados que SÍ están en la flota pernocta
 }
 
 export async function getResumenPernocta(): Promise<{ success: true; data: ResumenPernocta } | { success: false; error: string }> {
@@ -54,6 +56,12 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
       distinct: ['vehiculoId'],
     })
     const idsEscaneados = new Set(escaneosHoy.map((e) => e.vehiculoId))
+
+    // 2b. Verificar si hubo algún rondín abierto o cerrado hoy
+    const rondinHoy = await prisma.rondin.findFirst({
+      where: { fecha: hoy },
+      select: { id: true },
+    })
 
     // 3. Autorizaciones vigentes para hoy
     const autorizacionesVigentes = await prisma.autorizacionPernocta.findMany({
@@ -101,12 +109,19 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
       }
     }
 
+    // contar cuántos de los escaneados hoy pertenecen a la flota pernocta
+    const escaneadosOk = [...idsEscaneados].filter(id =>
+      flotaPernocta.some(v => v.id === id)
+    ).length
+
     return {
       success: true,
       data: {
         fecha: hoy.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
         totalFlota: flotaPernocta.length,
         escaneados: idsEscaneados.size,
+        rondinActivo: !!rondinHoy,
+        escaneadosOk,
         ausentesAutorizados,
         ausentesSinJustificar,
       },

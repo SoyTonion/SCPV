@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { Html5QrcodeScanner } from 'html5-qrcode';
-import { registrarEscaneo, type ResultadoEscaneo } from './actions';
+import { registrarEscaneo, cerrarRondinActivo, type ResultadoEscaneo, type ResultadoCierreRondin } from './actions';
 
 export default function ScannerPernocta() {
   const [mostrarEscaner, setMostrarEscaner] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoEscaneo | null>(null);
+  const [cerrando, setCerrando] = useState(false);
+  const [resumenCierre, setResumenCierre] = useState<ResultadoCierreRondin | null>(null);
 
   const procesarQR = async (token: string) => {
     setProcesando(true);
@@ -42,6 +44,15 @@ export default function ScannerPernocta() {
 
   const reiniciar = () => {
     setResultado(null);
+    setResumenCierre(null);
+  };
+
+  const handleCerrarRondin = async () => {
+    if (!confirm('¿Confirmas que terminaste el rondín de esta noche?')) return;
+    setCerrando(true);
+    const res = await cerrarRondinActivo();
+    setResumenCierre(res);
+    setCerrando(false);
   };
 
   const getVariante = (res: Extract<ResultadoEscaneo, { ok: true }>) => {
@@ -180,17 +191,60 @@ export default function ScannerPernocta() {
           )
 
         /* Estado: esperando */
+        ) : resumenCierre ? (
+          // Pantalla de resumen tras cerrar el rondín
+          resumenCierre.ok ? (
+            <div className="flex flex-col items-center text-center py-6">
+              <div className="w-16 h-16 bg-slate-100 text-slate-600 rounded-full flex items-center justify-center text-3xl mb-4">
+                🏁
+              </div>
+              <h3 className="text-xl font-bold text-slate-800 mb-1">Rondín cerrado</h3>
+              <p className="text-sm text-slate-500 mb-4">El rondín de esta noche ha sido registrado.</p>
+              <div className="w-full bg-slate-50 rounded-lg p-3 text-sm text-slate-600 space-y-1 text-left mb-6">
+                <p><strong>Inicio:</strong> {new Date(resumenCierre.inicio).toLocaleTimeString('es-MX', { timeStyle: 'short' })}</p>
+                <p><strong>Fin:</strong> {new Date(resumenCierre.fin).toLocaleTimeString('es-MX', { timeStyle: 'short' })}</p>
+                <p><strong>Vehículos escaneados:</strong> {resumenCierre.totalEscaneos}</p>
+              </div>
+              <button
+                onClick={reiniciar}
+                className="w-full border border-slate-300 text-slate-600 font-semibold rounded-lg p-3 transition-colors hover:bg-slate-50"
+              >
+                Nuevo escaneo
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center text-center py-6">
+              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-3xl mb-4">✕</div>
+              <h3 className="text-xl font-bold text-slate-800 mb-2">No se pudo cerrar</h3>
+              <p className="text-sm text-slate-500 mb-6">{resumenCierre.error}</p>
+              <button onClick={reiniciar} className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-semibold rounded-lg p-3 transition-colors">
+                Volver
+              </button>
+            </div>
+          )
         ) : (
-          <button
-            type="button"
-            onClick={() => setMostrarEscaner(true)}
-            className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-[#007A33]/5 hover:border-[#007A33]/50 text-slate-500 hover:text-[#007A33] rounded-xl p-6 flex flex-col items-center justify-center transition-all group"
-          >
-            <svg className="h-8 w-8 mb-2 text-slate-400 group-hover:text-[#007A33] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-            </svg>
-            <span className="text-sm font-semibold">Escanear Código QR</span>
-          </button>
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setMostrarEscaner(true)}
+              className="w-full border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-[#007A33]/5 hover:border-[#007A33]/50 text-slate-500 hover:text-[#007A33] rounded-xl p-6 flex flex-col items-center justify-center transition-all group"
+            >
+              <svg className="h-8 w-8 mb-2 text-slate-400 group-hover:text-[#007A33] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+              <span className="text-sm font-semibold">Escanear Código QR</span>
+            </button>
+
+            {/* Botón de terminar rondín */}
+            <button
+              type="button"
+              onClick={handleCerrarRondin}
+              disabled={cerrando}
+              className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 rounded-xl p-3 text-sm font-semibold transition-colors disabled:opacity-50"
+            >
+              {cerrando ? 'Cerrando rondín...' : '🏁 Terminar rondín'}
+            </button>
+          </div>
         )}
 
       </div>
