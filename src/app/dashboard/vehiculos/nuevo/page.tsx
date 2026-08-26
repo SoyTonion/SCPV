@@ -9,7 +9,7 @@ export default async function NuevoVehiculoPage() {
     <main className="p-8 max-w-5xl mx-auto space-y-6">
       <div>
         <Link
-          href="/dashboard/pernocta/vehiculos"
+          href="/dashboard/vehiculos"
           className="text-sm font-medium text-slate-500 hover:text-[#145c2c] transition-colors mb-2 inline-block"
         >
           ← Volver a Vehículos
