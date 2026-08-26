@@ -65,7 +65,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
             defaultValue={usuario?.nombre || ''}
             placeholder="Ej: Juan Pérez"
             required
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
           />
         </div>
 
@@ -78,7 +78,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
             defaultValue={usuario?.usuario || ''}
             placeholder="Ej: jperez"
             required
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
           />
         </div>
 
@@ -89,7 +89,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
             name="rolId"
             defaultValue={usuario?.rolId || usuario?.rol_id || (roles[0]?.id ?? '')}
             required
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
           >
             {roles.map((r) => (
               <option key={r.id} value={r.id}>
@@ -107,7 +107,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
             name="email"
             defaultValue={usuario?.email || ''}
             placeholder="usuario@cfe.gob.mx"
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
           />
         </div>
 
@@ -119,7 +119,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
             name="telefono"
             defaultValue={usuario?.telefono || ''}
             placeholder="Ej: 6561234567"
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
           />
         </div>
 
@@ -133,7 +133,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
             name="password"
             required={!isEditing}
             placeholder="••••••••"
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-purple-600"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-700"
           />
         </div>
       </div>
@@ -145,7 +145,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
           id="activo"
           name="activo"
           defaultChecked={usuario ? usuario.activo : true}
-          className="w-4 h-4 text-purple-600 rounded focus:ring-purple-600"
+          className="w-4 h-4 text-emerald-700 rounded focus:ring-emerald-700"
         />
         <label htmlFor="activo" className="text-sm font-medium text-slate-700 cursor-pointer">
           Usuario Activo en el Sistema
@@ -164,7 +164,7 @@ export default function FormUsuario({ usuario, roles }: FormUsuarioProps) {
         <button
           type="submit"
           disabled={loading}
-          className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+          className="bg-emerald-700 hover:bg-emerald-800 text-white px-5 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
         >
           {loading ? 'Guardando...' : isEditing ? 'Guardar Cambios' : 'Registrar Usuario'}
         </button>

@@ -162,3 +162,20 @@ export async function togglePermisoPernocta(vehiculoId: string, nuevoEstado: boo
     return { success: false, error: 'No se pudo actualizar el permiso' }
   }
 }
+
+// ============================================================
+// CAMBIAR PERNOCTA A TODOS LOS VEHÍCULOS
+// ============================================================
+export async function togglePernoctaTodos(nuevoEstado: boolean) {
+  try {
+    await prisma.vehiculo.updateMany({
+      data: { vehiculoPernocta: nuevoEstado },
+    })
+    revalidatePath('/dashboard/pernocta/vehiculos/nuevo')
+    revalidatePath('/dashboard/pernocta')
+    return { success: true }
+  } catch (error) {
+    console.error('Error en togglePernoctaTodos:', error)
+    return { success: false, error: 'No se pudo actualizar.' }
+  }
+}

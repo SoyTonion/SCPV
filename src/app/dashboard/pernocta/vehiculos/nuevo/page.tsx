@@ -2,13 +2,23 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { getVehiculosConMetricas, togglePermisoPernocta } from '../../actions'
+import { getVehiculosConMetricas, togglePermisoPernocta, togglePernoctaTodos } from '../../actions'
 
 export default function TablaVehiculosPernocta() {
   const [vehiculos, setVehiculos] = useState<any[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [cargando, setCargando] = useState(true)
   const [actualizandoId, setActualizandoId] = useState<string | null>(null)
+  const [actualizandoTodos, setActualizandoTodos] = useState(false)
+
+  const handleTodos = async (nuevoEstado: boolean) => {
+    const accion = nuevoEstado ? 'Activar pernocta para TODOS los vehículos' : 'Desactivar pernocta para TODOS los vehículos'
+    if (!confirm(`¿Confirmas: ${accion}?`)) return
+    setActualizandoTodos(true)
+    await togglePernoctaTodos(nuevoEstado)
+    await cargarVehiculos(busqueda)
+    setActualizandoTodos(false)
+  }
 
   const cargarVehiculos = async (query = '') => {
     setCargando(true)
@@ -69,9 +79,25 @@ export default function TablaVehiculosPernocta() {
           onChange={(e) => setBusqueda(e.target.value)}
           className="w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         />
-        <span className="text-xs font-medium text-slate-500">
-          Total: {vehiculos.length} vehículos
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => handleTodos(true)}
+            disabled={actualizandoTodos}
+            className="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 disabled:opacity-50 transition-colors"
+          >
+            ✓ Todos Permitido
+          </button>
+          <button
+            onClick={() => handleTodos(false)}
+            disabled={actualizandoTodos}
+            className="px-3 py-2 rounded-lg text-xs font-semibold bg-rose-100 text-rose-800 hover:bg-rose-200 disabled:opacity-50 transition-colors"
+          >
+            ✕ Todos No Permitido
+          </button>
+          <span className="text-xs font-medium text-slate-500">
+            {vehiculos.length} vehículos
+          </span>
+        </div>
       </div>
 
       {/* Tabla limpia */}
