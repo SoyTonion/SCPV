@@ -46,6 +46,20 @@ export default function TablaVehiculosPernocta() {
 
   return (
     <div className="p-6 space-y-4">
+      {/* Encabezado */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-[#145c2c]">Vehículos — Control de Pernocta</h1>
+          <p className="text-slate-500 text-sm mt-1">Gestiona el permiso de pernocta de cada unidad del parque vehicular.</p>
+        </div>
+        <Link
+          href="/dashboard/pernocta"
+          className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+        >
+          ← Volver al módulo
+        </Link>
+      </div>
+
       {/* Buscador y Contador */}
       <div className="flex items-center justify-between gap-4">
         <input
