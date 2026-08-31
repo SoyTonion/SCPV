@@ -14,18 +14,27 @@ export async function POST(request: Request) {
     const { vehiculoId, kilometraje, litros, importe } = body;
 
     const rutaFalsaEvidencia = "/uploads/ticket_" + Date.now() + ".jpg";
+    const kilometrajeNuevo = parseInt(kilometraje);
 
-    const nuevoRegistro = await prisma.registroCombustible.create({
-      data: {
-        vehiculoId: vehiculoId,
-        usuarioId: 1, 
-        kilometraje: parseInt(kilometraje),
-        litrosCargados: parseFloat(litros),
-        costoTotal: parseFloat(importe),
-        rutaEvidencia: rutaFalsaEvidencia,
-        // Prisma se encargará de la fecha si es @default(now()) en tu esquema
-      }
-    });
+    // 🆕 [NUEVO CFE] Usamos una "Transacción" para ejecutar dos acciones obligatorias al mismo tiempo
+    const [nuevoRegistro, vehiculoActualizado] = await prisma.$transaction([
+      // Acción 1: Guardamos el ticket de combustible en la bitácora
+      prisma.registroCombustible.create({
+        data: {
+          vehiculoId: vehiculoId,
+          usuarioId: 1, 
+          kilometraje: kilometrajeNuevo,
+          litrosCargados: parseFloat(litros),
+          costoTotal: parseFloat(importe),
+          rutaEvidencia: rutaFalsaEvidencia,
+        }
+      }),
+      // Acción 2: Le actualizamos el odómetro al vehículo para bloquear fraudes futuros
+      prisma.vehiculo.update({
+        where: { id: vehiculoId },
+        data: { kilometrajeActual: kilometrajeNuevo }
+      })
+    ]);
 
     const registroSerializado = {
       ...nuevoRegistro,

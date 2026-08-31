@@ -20,14 +20,14 @@ export async function GET(
     // 2. Extraemos el texto esperando (await) a que los parámetros estén listos
     const { qr } = await params;
     
-    // 2. Buscamos el vehículo en PostgreSQL
+    // 3. Buscamos el vehículo en PostgreSQL
     const vehiculo = await prisma.vehiculo.findUnique({
       where: {
-        qrToken: qr, // Ahora sí tiene el valor real (ej. CFE-QR-23000147)
+        qrToken: qr,
       },
     });
 
-    // 3. Si no existe, mandamos un error 404
+    // 4. Si no existe, mandamos un error 404
     if (!vehiculo) {
       return NextResponse.json(
         { error: 'Vehículo no encontrado en el padrón de CFE.' },
@@ -35,8 +35,34 @@ export async function GET(
       );
     }
 
-    // 4. Si lo encuentra, lo devolvemos completo
-    return NextResponse.json(vehiculo);
+    // 🆕 [NUEVO CFE] 5. Calcular cuántos litros se ha gastado este mes
+    const fechaInicioMes = new Date();
+    fechaInicioMes.setDate(1); // Día 1 del mes actual
+    fechaInicioMes.setHours(0, 0, 0, 0);
+
+    const cargasDelMes = await prisma.registroCombustible.aggregate({
+      _sum: {
+        litrosCargados: true,
+      },
+      where: {
+        vehiculoId: vehiculo.id,
+        fechaCarga: {
+          gte: fechaInicioMes, // Mayor o igual al día 1
+        },
+        estadoAprobacion: 'APROBADA' // Solo sumamos las que pasaron bien
+      },
+    });
+
+    // Convertimos la suma a un número normal (si no hay cargas, es 0)
+    const litrosConsumidosMes = cargasDelMes._sum.litrosCargados ? Number(cargasDelMes._sum.litrosCargados) : 0;
+
+    // 6. Devolvemos el vehículo formateando los Decimales a Números Reales
+    return NextResponse.json({
+      ...vehiculo,
+      capacidadTanque: vehiculo.capacidadTanque ? Number(vehiculo.capacidadTanque) : null,
+      limiteMensualLitros: vehiculo.limiteMensualLitros ? Number(vehiculo.limiteMensualLitros) : null,
+      litrosConsumidosMes: litrosConsumidosMes
+    });
 
   } catch (error) {
     console.error("Error en API de vehículos:", error);

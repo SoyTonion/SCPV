@@ -20,8 +20,11 @@ enum TipoVehiculo {
   MON
 }
 
+// -- Lineamientos CFE: Clasificación de Combustible (Punto 10.5) --
 enum TipoCombustible {
-  GASOLINA
+  GASOLINA  // Lo regresamos para que Postgres no marque error con los datos viejos
+  MAGNA
+  PREMIUM
   DIESEL
 }
 
@@ -54,7 +57,7 @@ enum TipoIncidencia {
   DEFENSA_DANADA
   CONDICION_FISICA_CRITICA
 
-  //  -- Incidencias de Combustible
+  // -- Incidencias de Combustible --
   KILOMETRAJE_INFERIOR
   SOBRECARGA_VOLUMETRICA
   RENDIMIENTO_ANOMALO
@@ -111,6 +114,13 @@ enum TipoHallazgo {
   BAJA_SIMILITUD
 }
 
+// -- Control de autorizaciones de emergencia para combustible --
+enum EstadoAprobacionCombustible {
+  APROBADA
+  PENDIENTE_REVISION
+  RECHAZADA
+}
+
 // ============================================================
 // TABLAS
 // ============================================================
@@ -145,7 +155,7 @@ model Vehiculo {
   submarcaVehiculo   String                @default("AVEO") @map("submarca_vehiculo")
   modelo             Int?
   tipoVehiculo       TipoVehiculo          @default(SED) @map("tipo_vehiculo")
-  tipoCombustible    TipoCombustible       @default(GASOLINA) @map("tipo_combustible")
+  tipoCombustible    TipoCombustible       @default(MAGNA) @map("tipo_combustible")
   arrendadora        Arrendadora           @default(NA)
   campoClasificacion String                @default("|") @map("campo_clasificacion")
   responsable        String                @default("EDGAR OSWALDO PADILLA LOPEZ")
@@ -156,36 +166,46 @@ model Vehiculo {
   creadoEn           DateTime              @default(now()) @map("creado_en")
   actualizadoEn      DateTime              @default(now()) @updatedAt @map("actualizado_en")
 
-  //  Campos adicionales para Módulo de Combustible 
-  capacidadTanque      Decimal?              @map("capacidad_tanque") @db.Decimal(5,2)
-  kilometrajeActual    Int                   @default(0) @map("kilometraje_actual")
-  qrToken              String?               @unique @map("qr_token") @db.VarChar(100)
+  // -- Módulo de Combustible: Campos Operativos --
+  capacidadTanque    Decimal?              @map("capacidad_tanque") @db.Decimal(5,2)
+  kilometrajeActual  Int                   @default(0) @map("kilometraje_actual")
+  qrToken            String?               @unique @map("qr_token") @db.VarChar(100)
 
-  // Relaciones originales
+  // -- Lineamientos CFE: Parámetros Administrativos y Restricciones --
+  centroCostos       String?               @map("centro_costos") @db.VarChar(50)
+  area               String?               @db.VarChar(100)
+  limiteMensualLitros Decimal?             @map("limite_mensual_litros") @db.Decimal(6,2) 
+  cargasMaximasDia   Int?                  @default(1) @map("cargas_maximas_dia")
+  nip                String?               @db.VarChar(10) 
+
+  // -- Relaciones --
   departamento       Departamento?         @relation(fields: [departamentoId], references: [id])
   escaneos           Escaneo[]
   incidencias        Incidencia[]
   autorizaciones     AutorizacionPernocta[]
   imagenesPatron     ImagenPatron[]
   inspecciones       InspeccionFisica[]
-
-  // - Relación Módulo de Combustible 
   registrosCombustible RegistroCombustible[]
 
   @@map("vehiculos")
 }
 
 model Usuario {
-  id             Int      @id @default(autoincrement())
-  nombre         String   @db.VarChar(100)
-  telefono       String?  @db.VarChar(20)
-  email          String?  @db.VarChar(100)
-  usuario        String   @unique @db.VarChar(50)
-  passwordHash   String   @map("password_hash")
-  rolId          Int      @map("rol_id")
-  activo         Boolean  @default(true)
-  creadoEn       DateTime @default(now()) @map("creado_en")
+  id           Int      @id @default(autoincrement())
+  nombre       String   @db.VarChar(100)
+  telefono     String?  @db.VarChar(20)
+  email        String?  @db.VarChar(100)
+  usuario      String   @unique @db.VarChar(50)
+  passwordHash String   @map("password_hash")
+  rolId        Int      @map("rol_id")
+  activo       Boolean  @default(true)
+  creadoEn     DateTime @default(now()) @map("creado_en")
 
+  // -- Lineamientos CFE: Identificadores Oficiales para Formatos TT --
+  rpe          String?  @unique @db.VarChar(20)
+  cargo        String?  @db.VarChar(100)
+
+  // -- Relaciones --
   rol                    Rol                    @relation(fields: [rolId], references: [id])
   departamentos          UsuarioDepartamento[]
   rondines               Rondin[]
@@ -193,21 +213,18 @@ model Usuario {
   autorizaciones         AutorizacionPernocta[] @relation("AutorizadasPor")
   inspeccionesRealizadas InspeccionFisica[]
   imagenesPatronCreadas  ImagenPatron[]         @relation("ImagenesPatronCreadas")
-
-  // -- Relación Módulo de Combustible --
   cargasCombustible      RegistroCombustible[]  @relation("RegistrosCombustibleTrabajador")
 
   @@map("usuarios")
 }
 
-// Tabla pivote para la relación Muchos-a-Muchos entre Usuarios y Departamentos
 model UsuarioDepartamento {
   usuarioId      Int      @map("usuario_id")
   departamentoId Int      @map("departamento_id")
   creadoEn       DateTime @default(now()) @map("creado_en")
 
-  usuario        Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  departamento   Departamento @relation(fields: [departamentoId], references: [id], onDelete: Cascade)
+  usuario      Usuario      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  departamento Departamento @relation(fields: [departamentoId], references: [id], onDelete: Cascade)
 
   @@id([usuarioId, departamentoId])
   @@map("usuarios_departamentos")
@@ -221,9 +238,8 @@ model Rondin {
   fin       DateTime?
   estado    EstadoRondin @default(ABIERTO)
 
-  // Relaciones
-  guardia   Usuario   @relation(fields: [guardiaId], references: [id])
-  escaneos  Escaneo[]
+  guardia  Usuario   @relation(fields: [guardiaId], references: [id])
+  escaneos Escaneo[]
 
   @@map("rondines")
 }
@@ -235,7 +251,6 @@ model Escaneo {
   fechaHora   DateTime @default(now()) @map("fecha_hora")
   dispositivo String?  @db.VarChar(100)
 
-  // Relaciones
   rondin   Rondin   @relation(fields: [rondinId], references: [id], onDelete: Cascade)
   vehiculo Vehiculo @relation(fields: [vehiculoId], references: [id])
 
@@ -253,7 +268,6 @@ model Incidencia {
   resueltaPor Int?             @map("resuelta_por")
   resueltaEn  DateTime?        @map("resuelta_en")
 
-  // Relaciones
   vehiculo    Vehiculo @relation(fields: [vehiculoId], references: [id])
   usuario     Usuario? @relation("IncidenciasResueltas", fields: [resueltaPor], references: [id])
 
@@ -269,7 +283,6 @@ model AutorizacionPernocta {
   autorizadoPor Int      @map("autorizado_por")
   creadoEn      DateTime @default(now()) @map("creado_en")
 
-  // Relaciones
   vehiculo      Vehiculo @relation(fields: [vehiculoId], references: [id])
   usuario       Usuario  @relation("AutorizadasPor", fields: [autorizadoPor], references: [id])
 
@@ -286,6 +299,7 @@ model Configuracion {
 // ============================================================
 // MÓDULO DE CONDICIONES FÍSICAS
 // ============================================================
+
 model ImagenPatron {
   id         BigInt        @id @default(autoincrement())
   vehiculoId String        @map("vehiculo_id") @db.Uuid
@@ -304,51 +318,51 @@ model ImagenPatron {
 }
 
 model InspeccionFisica {
-  id               BigInt             @id @default(autoincrement())
-  vehiculoId       String             @map("vehiculo_id") @db.Uuid
-  inspectorId      Int                @map("inspector_id")
-  fechaHora        DateTime           @default(now()) @map("fecha_hora")
-  tipo             TipoInspeccion     @default(RUTINA)
-  estadoGeneral    EstadoInspeccion   @default(NORMAL) @map("estado_general")
-  puntaje          Decimal?           @db.Decimal(5,2)
-  observaciones    String?            @db.Text
-  procesada        Boolean            @default(false)
+  id            BigInt           @id @default(autoincrement())
+  vehiculoId    String           @map("vehiculo_id") @db.Uuid
+  inspectorId   Int              @map("inspector_id")
+  fechaHora     DateTime         @default(now()) @map("fecha_hora")
+  tipo          TipoInspeccion   @default(RUTINA)
+  estadoGeneral EstadoInspeccion @default(NORMAL) @map("estado_general")
+  puntaje       Decimal?         @db.Decimal(5,2)
+  observaciones String?          @db.Text
+  procesada     Boolean          @default(false)
 
-  vehiculo         Vehiculo           @relation(fields: [vehiculoId], references: [id])
-  inspector        Usuario            @relation(fields: [inspectorId], references: [id])
+  vehiculo      Vehiculo         @relation(fields: [vehiculoId], references: [id])
+  inspector     Usuario          @relation(fields: [inspectorId], references: [id])
 
-  fotografias      FotografiaInspeccion[]
-  hallazgos        HallazgoInspeccion[]
+  fotografias   FotografiaInspeccion[]
+  hallazgos     HallazgoInspeccion[]
 
   @@map("inspecciones_fisicas")
 }
 
 model FotografiaInspeccion {
-  id             BigInt           @id @default(autoincrement())
-  inspeccionId   BigInt           @map("inspeccion_id")
-  vista          VistaVehiculo
-  rutaImagen     String           @map("ruta_imagen") @db.VarChar(255)
-  hashImagen     String?          @map("hash_imagen") @db.VarChar(128)
-  creadaEn       DateTime         @default(now()) @map("creada_en")
+  id           BigInt           @id @default(autoincrement())
+  inspeccionId BigInt           @map("inspeccion_id")
+  vista        VistaVehiculo
+  rutaImagen   String           @map("ruta_imagen") @db.VarChar(255)
+  hashImagen   String?          @map("hash_imagen") @db.VarChar(128)
+  creadaEn     DateTime         @default(now()) @map("creada_en")
 
-  inspeccion     InspeccionFisica @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
+  inspeccion   InspeccionFisica @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
 
   @@unique([inspeccionId, vista])
   @@map("fotografias_inspeccion")
 }
 
 model HallazgoInspeccion {
-  id               BigInt             @id @default(autoincrement())
-  inspeccionId     BigInt             @map("inspeccion_id")
-  componente       ComponenteVehiculo
-  tipo             TipoHallazgo
-  confianza        Decimal            @db.Decimal(5,2)
-  similitud        Decimal?           @db.Decimal(5,2)
-  rutaRecorte      String?            @map("ruta_recorte") @db.VarChar(255)
-  descripcion      String?            @db.Text
-  creadoEn         DateTime           @default(now()) @map("creado_en")
+  id           BigInt             @id @default(autoincrement())
+  inspeccionId BigInt             @map("inspeccion_id")
+  componente   ComponenteVehiculo
+  tipo         TipoHallazgo
+  confianza    Decimal            @db.Decimal(5,2)
+  similitud    Decimal?           @db.Decimal(5,2)
+  rutaRecorte  String?            @map("ruta_recorte") @db.VarChar(255)
+  descripcion  String?            @db.Text
+  creadoEn     DateTime           @default(now()) @map("creado_en")
 
-  inspeccion       InspeccionFisica   @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
+  inspeccion   InspeccionFisica   @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
 
   @@map("hallazgos_inspeccion")
 }
@@ -358,21 +372,25 @@ model HallazgoInspeccion {
 // ============================================================
 
 model RegistroCombustible {
-  id                BigInt   @id @default(autoincrement())
-  vehiculoId        String   @map("vehiculo_id") @db.Uuid
-  usuarioId         Int      @map("usuario_id") 
-  fechaCarga        DateTime @default(now()) @map("fecha_carga")
+  id               BigInt   @id @default(autoincrement())
+  vehiculoId       String   @map("vehiculo_id") @db.Uuid
+  usuarioId        Int      @map("usuario_id") 
+  fechaCarga       DateTime @default(now()) @map("fecha_carga")
   
-  kilometraje       Int
-  litrosCargados    Decimal  @map("litros_cargados") @db.Decimal(6,2)
-  costoTotal        Decimal  @map("costo_total") @db.Decimal(8,2)
-  rutaEvidencia     String   @map("ruta_evidencia") @db.VarChar(255)
+  kilometraje      Int
+  litrosCargados   Decimal  @map("litros_cargados") @db.Decimal(6,2)
+  costoTotal       Decimal  @map("costo_total") @db.Decimal(8,2)
+  rutaEvidencia    String   @map("ruta_evidencia") @db.VarChar(255)
+  rendimientoKmL   Decimal? @map("rendimiento_km_l") @db.Decimal(5,2)
   
-  rendimientoKmL    Decimal? @map("rendimiento_km_l") @db.Decimal(5,2)
-  
-  // Relaciones
-  vehiculo          Vehiculo @relation(fields: [vehiculoId], references: [id])
-  usuario           Usuario  @relation("RegistrosCombustibleTrabajador", fields: [usuarioId], references: [id])
+  // -- Lineamientos CFE: Trazabilidad de Excepciones y Autorizaciones (Punto 10.6) --
+  esExcepcion      Boolean  @default(false) @map("es_excepcion")
+  justificacion    String?  @db.Text
+  estadoAprobacion EstadoAprobacionCombustible @default(APROBADA) @map("estado_aprobacion")
+
+  // -- Relaciones --
+  vehiculo         Vehiculo @relation(fields: [vehiculoId], references: [id])
+  usuario          Usuario  @relation("RegistrosCombustibleTrabajador", fields: [usuarioId], references: [id])
 
   @@map("registros_combustible")
 }
