@@ -9,8 +9,6 @@ interface VehiculoData {
   submarcaVehiculo: string;
   placas: string;
   economico: string;
-  // Si la API devuelve el último kilometraje, agrégalo aquí
-  // kilometrajeActual?: number;
 }
 
 interface ErroresValidacion {
@@ -44,10 +42,8 @@ export default function CombustibleClient() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [intentoEnvio, setIntentoEnvio] = useState(false);
 
-  // Estado para fecha y hora actual
   const [fechaActual, setFechaActual] = useState(new Date());
 
-  // Actualizar la fecha cada minuto
   useEffect(() => {
     const intervalo = setInterval(() => {
       setFechaActual(new Date());
@@ -55,7 +51,6 @@ export default function CombustibleClient() {
     return () => clearInterval(intervalo);
   }, []);
 
-  // Formatear fecha y hora
   const fechaFormateada = fechaActual.toLocaleDateString('es-MX', {
     weekday: 'long',
     day: '2-digit',
@@ -68,7 +63,6 @@ export default function CombustibleClient() {
     second: '2-digit',
   });
 
-  // Calcular precio por litro si ambos campos están llenos
   const precioPorLitro = useMemo(() => {
     const litrosNum = parseFloat(litros);
     const importeNum = parseFloat(importe);
@@ -156,8 +150,6 @@ export default function CombustibleClient() {
           submarcaVehiculo: datosVehiculo.submarcaVehiculo,
           placas: datosVehiculo.placas || 'S/N',
           economico: datosVehiculo.economico || 'S/N',
-          // Si la API devuelve kilometraje actual, guárdalo aquí para mostrarlo
-          // kilometrajeActual: datosVehiculo.kilometrajeActual,
         });
         setVehiculoId(datosVehiculo.id);
         limpiarError('vehiculo');
@@ -223,7 +215,6 @@ export default function CombustibleClient() {
         kilometraje,
         litros,
         importe,
-        // La fecha/hora se toma automáticamente del servidor, no es necesario enviarla
       };
 
       const respuesta = await fetch('/api/combustible', {
@@ -401,7 +392,6 @@ export default function CombustibleClient() {
                       <span className="font-semibold">${precioPorLitro}</span>
                     </div>
                   )}
-                  {/* Mostrar fecha y hora */}
                   <div className="flex justify-between border-t border-slate-200 pt-2 mt-2">
                     <span className="text-slate-500">Fecha y hora:</span>
                     <span className="font-semibold text-right">
@@ -487,7 +477,6 @@ export default function CombustibleClient() {
                           {vehiculoData.marcaVehiculo} {vehiculoData.submarcaVehiculo}
                         </p>
                         <div className="flex items-center gap-1.5">
-                          {/* Placas */}
                           <div className="flex items-center bg-white border border-[#007A33]/20 shadow-sm rounded-md px-1.5 py-0.5 h-6">
                             <svg className="w-3 h-3 text-slate-600 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
@@ -496,8 +485,6 @@ export default function CombustibleClient() {
                               {vehiculoData.placas}
                             </span>
                           </div>
-
-                          {/* Económico */}
                           <div className="flex items-center bg-[#007A33]/10 border border-[#007A33]/20 rounded-md px-1.5 py-0.5 h-6">
                             <svg className="w-3 h-3 text-[#007A33] mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -536,8 +523,10 @@ export default function CombustibleClient() {
                   2. Detalles del Ticket
                 </label>
 
+                {/* --- KILOMETRAJE --- */}
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-600">
+                  {/* Se agregó z-10 y se cambió a verde */}
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] z-10">
                     <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
@@ -553,15 +542,18 @@ export default function CombustibleClient() {
                       errores.kilometraje ? 'border-red-400' : 'border-slate-300'
                     }`}
                   />
-                  <span className="absolute right-3 top-3 text-slate-400 text-xs font-bold">KM</span>
+                  {/* Se agregó z-10 */}
+                  <span className="absolute right-3 top-3 text-slate-400 text-xs font-bold z-10">KM</span>
                   {intentoEnvio && errores.kilometraje && (
                     <p className="text-red-500 text-xs mt-1">{errores.kilometraje}</p>
                   )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
+                  {/* --- LITROS --- */}
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-600">
+                    {/* Se agregó z-10 y se cambió de text-slate-600 a text-[#007A33] */}
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] z-10">
                       <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                       </svg>
@@ -583,8 +575,10 @@ export default function CombustibleClient() {
                     )}
                   </div>
 
+                  {/* --- IMPORTE --- */}
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] font-bold text-sm">
+                    {/* Se agregó z-10 */}
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] font-bold text-sm z-10">
                       $
                     </div>
                     <input
