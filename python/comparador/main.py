@@ -38,19 +38,24 @@ NEXTJS_PUBLIC = os.path.normpath(
 
 TARGET_W, TARGET_H = 640, 640
 
-# Pesos del score compuesto
-W_HIST  = 0.35
-W_MATCH = 0.30
-W_SSIM  = 0.35
+# ── Pesos del score compuesto ─────────────────────────────────────────────────
+# Histograma HSV (H+S) — muy robusto a perspectiva e iluminación: peso dominante
+# Matches SIFT        — robusto a escala y rotación: peso alto
+# Similitud de bordes — invariante a iluminación, tolera micro-desalineamiento
+# SSIM interior       — más preciso pero sensible: peso bajo de validación
+W_HIST   = 0.45
+W_MATCH  = 0.30
+W_BORDES = 0.15
+W_SSIM   = 0.10
 
 # Umbrales del score compuesto final
-UMBRAL_NORMAL      = 0.72
-UMBRAL_ADVERTENCIA = 0.55
+UMBRAL_NORMAL      = 0.68
+UMBRAL_ADVERTENCIA = 0.50
 
 # SIFT / alineación
-MIN_INLIERS    = 8
-RATIO_LOWE     = 0.72
-MAX_REPROJ_ERR = 12.0
+MIN_INLIERS    = 6      # reducido — más permisivo cuando la escena tiene poco textura
+RATIO_LOWE     = 0.75
+MAX_REPROJ_ERR = 15.0   # más tolerante con diferencias legítimas de perspectiva
 
 CLASES_VEHICULO = {2, 3, 5, 7}
 
@@ -180,37 +185,40 @@ def generar_mascara(img_bgr: np.ndarray) -> np.ndarray:
 def score_histograma(img_a: np.ndarray, img_b: np.ndarray,
                      mask_a: np.ndarray, mask_b: np.ndarray) -> float:
     """
-    Compara histogramas HSV con máscara.
-    Método Bhattacharyya (0=idéntico, 1=completamente diferente) → convertido a similitud.
+    Compara histogramas en canal H y S del espacio HSV únicamente.
+    Se omite el canal V (luminosidad) porque cambia con la hora del día e iluminación.
+    Método: correlación de Pearson (más estable que Bhattacharyya para exteriores).
+    Transformación raíz cuadrada sobre los bins para reducir el efecto de bins dominantes.
     """
     hsv_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2HSV)
     hsv_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2HSV)
 
-    # Asegurar que las máscaras sean uint8 del mismo tamaño que las imágenes
     h_a, w_a = img_a.shape[:2]
     h_b, w_b = img_b.shape[:2]
-
     m_a = cv2.resize(mask_a, (w_a, h_a), interpolation=cv2.INTER_NEAREST)
     m_b = cv2.resize(mask_b, (w_b, h_b), interpolation=cv2.INTER_NEAREST)
 
-    # Combinar máscara con zona no-negra (uint8 explícito)
-    gray_a = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY)
-    gray_b = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY)
+    gray_a  = cv2.cvtColor(img_a, cv2.COLOR_BGR2GRAY)
+    gray_b  = cv2.cvtColor(img_b, cv2.COLOR_BGR2GRAY)
     valid_a = cv2.bitwise_and(m_a, (gray_a > 10).astype(np.uint8) * 255)
     valid_b = cv2.bitwise_and(m_b, (gray_b > 10).astype(np.uint8) * 255)
 
-    ranges   = [0, 180, 0, 256, 0, 256]
-    sizes    = [50, 60, 60]
-    channels = [0, 1, 2]
+    scores = []
+    # Canal H (tono): 36 bins de 5° cada uno
+    # Canal S (saturación): 32 bins — refleja la intensidad del color
+    for ch, bins, rng in [(0, 36, [0, 180]), (1, 32, [0, 256])]:
+        h1 = cv2.calcHist([hsv_a], [ch], valid_a, [bins], rng)
+        h2 = cv2.calcHist([hsv_b], [ch], valid_b, [bins], rng)
+        # Transformación raíz para suavizar dominancia de bins grandes
+        h1 = np.sqrt(h1 + 1e-6)
+        h2 = np.sqrt(h2 + 1e-6)
+        cv2.normalize(h1, h1)
+        cv2.normalize(h2, h2)
+        # Correlación de Pearson: 1=idéntico, -1=opuesto → mapear a [0,1]
+        corr = float(cv2.compareHist(h1, h2, cv2.HISTCMP_CORREL))
+        scores.append((corr + 1.0) / 2.0)
 
-    hist_a = cv2.calcHist([hsv_a], channels, valid_a, sizes, ranges)
-    hist_b = cv2.calcHist([hsv_b], channels, valid_b, sizes, ranges)
-
-    cv2.normalize(hist_a, hist_a)
-    cv2.normalize(hist_b, hist_b)
-
-    dist  = cv2.compareHist(hist_a, hist_b, cv2.HISTCMP_BHATTACHARYYA)
-    return float(max(0.0, 1.0 - dist))
+    return float(np.mean(scores))
 
 
 # ── COMPONENTE B: Score de matches SIFT ──────────────────────────────────────
@@ -279,9 +287,11 @@ def alinear_sift(patron_g: np.ndarray, captura_g: np.ndarray) -> dict:
                                    flags=cv2.INTER_LINEAR,
                                    borderMode=cv2.BORDER_REFLECT_101)
 
-    # Score de inliers: normalizado
-    score_inliers = min(1.0, n_in / 60.0)
-    score_matches_final = (score_matches + score_inliers) / 2.0
+    # Score de inliers: normalizado contra 30 (umbral razonable para exteriores)
+    score_inliers = min(1.0, n_in / 30.0)
+    # Score de ratio buenos/total: indica qué tan "limpia" es la escena para SIFT
+    score_ratio   = min(1.0, len(buenos) / max(len(kp1), len(kp2)) * 10.0)
+    score_matches_final = score_inliers * 0.65 + score_ratio * 0.35
 
     return {"imagen": alineada, "alineada": True, "motivo": "ok",
             "matches": len(buenos), "inliers": n_in, "reproj_error": round(err, 2),
@@ -293,15 +303,16 @@ def alinear_sift(patron_g: np.ndarray, captura_g: np.ndarray) -> dict:
 def score_ssim_interior(patron_g: np.ndarray, alineada_g: np.ndarray,
                         mascara: np.ndarray) -> tuple[float, np.ndarray]:
     """
-    SSIM sobre la zona erosionada de la máscara.
-    Erosionar 20px elimina los bordes donde la homografía introduce artefactos.
+    SSIM sobre la zona muy interior (erosión 61px) para evitar completamente
+    los artefactos de borde de la homografía. Peso bajo — es solo validación.
     """
-    kern_erosion = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (41, 41))
+    kern_erosion = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (61, 61))
     mascara_int  = cv2.erode(mascara, kern_erosion, iterations=1)
 
-    # Si la erosión elimina demasiado, usar la máscara sin erodar
-    if cv2.countNonZero(mascara_int) < (mascara.size * 0.05):
-        mascara_int = mascara
+    if cv2.countNonZero(mascara_int) < (mascara.size * 0.03):
+        mascara_int = cv2.erode(mascara,
+                                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21)),
+                                iterations=1)
 
     validos = (mascara_int > 0) & (patron_g > 8) & (alineada_g > 8)
     n_val   = int(validos.sum())
@@ -309,12 +320,75 @@ def score_ssim_interior(patron_g: np.ndarray, alineada_g: np.ndarray,
     _, mapa = compare_ssim(patron_g, alineada_g, full=True, data_range=255)
 
     mapa_vis = mapa.copy()
-    mapa_vis[~validos] = 0.85   # zonas excluidas → color neutro en visualización
+    mapa_vis[~validos] = 0.85
 
-    if n_val < 500:
-        return float(np.mean(mapa[validos])) if n_val > 0 else 0.5, mapa_vis
+    if n_val < 300:
+        return 0.6, mapa_vis   # fallback neutro cuando hay muy pocos píxeles válidos
 
     return float(np.mean(mapa[validos])), mapa_vis
+
+
+# ── COMPONENTE D: Similitud de bordes con Distance Transform ──────────────────
+#
+# En lugar de comparar densidad de bordes por bloques (sensible a desplazamientos
+# de 1-5px), calculamos el Distance Transform del mapa de bordes del patrón:
+# cada píxel vale su distancia al borde más cercano.
+# Luego evaluamos qué tan cerca están los bordes de la captura de los bordes
+# del patrón — si están a ≤5px se considera match.
+# Esto tolera el desplazamiento residual de la homografía sin penalizarlo.
+
+def score_bordes(patron_g: np.ndarray, alineada_g: np.ndarray,
+                 mascara: np.ndarray) -> float:
+    """
+    Compara bordes Canny usando Distance Transform.
+    Un borde en la captura que cae a ≤ umbral_px del borde patrón = match perfecto.
+    Tolerancia de 7px para absorber el desplazamiento residual de la homografía.
+    """
+    TOLERANCIA_PX = 7.0
+
+    bordes_p = cv2.Canny(patron_g,  35, 100)
+    bordes_a = cv2.Canny(alineada_g, 35, 100)
+
+    mascara_bin = (mascara > 0).astype(np.uint8)
+    bordes_p = cv2.bitwise_and(bordes_p, bordes_p, mask=mascara_bin)
+    bordes_a = cv2.bitwise_and(bordes_a, bordes_a, mask=mascara_bin)
+
+    n_bordes_p = int(cv2.countNonZero(bordes_p))
+    n_bordes_a = int(cv2.countNonZero(bordes_a))
+
+    # Si alguna imagen tiene muy pocos bordes, devolver score neutro
+    if n_bordes_p < 50 or n_bordes_a < 50:
+        return 0.65
+
+    # Distance Transform del patrón: cada píxel = distancia al borde patrón más cercano
+    # (bordes son 0 en la imagen invertida → fondo es 255)
+    inv_p = cv2.bitwise_not(bordes_p)
+    dist_p = cv2.distanceTransform(inv_p, cv2.DIST_L2, 5)
+
+    # Distance Transform de la captura alineada
+    inv_a = cv2.bitwise_not(bordes_a)
+    dist_a = cv2.distanceTransform(inv_a, cv2.DIST_L2, 5)
+
+    # Score A→B: para cada borde de la captura, ¿qué tan cerca está del patrón?
+    # Sólo evaluar píxeles que son borde en la captura
+    pxls_a = bordes_a > 0
+    if pxls_a.sum() > 0:
+        distancias_a = dist_p[pxls_a]
+        # Score suavizado: 1.0 a dist=0, 0.0 a dist=tolerancia, lineal
+        score_ab = float(np.mean(np.clip(1.0 - distancias_a / TOLERANCIA_PX, 0.0, 1.0)))
+    else:
+        score_ab = 0.65
+
+    # Score B→A: para cada borde del patrón, ¿qué tan cerca está de la captura?
+    pxls_p = bordes_p > 0
+    if pxls_p.sum() > 0:
+        distancias_p = dist_a[pxls_p]
+        score_ba = float(np.mean(np.clip(1.0 - distancias_p / TOLERANCIA_PX, 0.0, 1.0)))
+    else:
+        score_ba = 0.65
+
+    # Score simétrico (media de ambas direcciones)
+    return (score_ab + score_ba) / 2.0
 
 
 # ── Hallazgos ─────────────────────────────────────────────────────────────────
@@ -403,12 +477,19 @@ def comparar():
         mascara_p = generar_mascara(patron_norm)
         mascara_c = generar_mascara(captura_norm)
 
-        # 4. fit_con_padding → mismo tamaño cuadrado
-        patron_fit   = fit_cuadrado(patron_norm)
-        captura_fit  = fit_cuadrado(captura_norm)
+        # 4. fit_cuadrado → mismo tamaño cuadrado
+        patron_fit    = fit_cuadrado(patron_norm)
+        captura_fit   = fit_cuadrado(captura_norm)
         mascara_p_fit = fit_cuadrado(mascara_p)
         mascara_c_fit = fit_cuadrado(mascara_c)
-        mascara_comb  = cv2.bitwise_and(mascara_p_fit, mascara_c_fit)
+
+        # Máscara combinada: unión (OR) en lugar de intersección (AND).
+        # El AND era demasiado restrictivo — si YOLO detecta el vehículo
+        # en posiciones ligeramente distintas en patrón y captura, la
+        # intersección puede ser <25% aunque ambas cubran bien el vehículo.
+        # La unión garantiza que evaluamos todo píxel donde al menos
+        # una de las dos imágenes tiene vehículo detectado.
+        mascara_comb = cv2.bitwise_or(mascara_p_fit, mascara_c_fit)
 
         # 5. COMPONENTE A: Histograma HSV (invariante a perspectiva)
         sa = score_histograma(patron_fit, captura_fit, mascara_p_fit, mascara_c_fit)
@@ -422,11 +503,18 @@ def comparar():
         gray_alineada = info_alin["imagen"]
         sb = info_alin["score_matches"]
 
-        # 8. COMPONENTE C: SSIM sobre zona interior del vehículo
+        # 8. COMPONENTE C: SSIM sobre zona muy interior (validación)
         sc, mapa = score_ssim_interior(gray_patron, gray_alineada, mascara_comb)
 
-        # 9. Score compuesto ponderado
-        score_final = W_HIST * sa + W_MATCH * sb + W_SSIM * sc
+        # 9. COMPONENTE D: Similitud de bordes Canny (invariante a iluminación)
+        sd = score_bordes(gray_patron, gray_alineada, mascara_comb)
+
+        # 10. Score compuesto ponderado
+        # Histograma H+S: 45% — robusto a perspectiva e iluminación
+        # Matches SIFT:   30% — robusto a escala y rotación
+        # Bordes Canny:   15% — invariante a iluminación, tolera micro-desalineamiento
+        # SSIM interior:  10% — validación de estructura (peso bajo por sensibilidad)
+        score_final = W_HIST * sa + W_MATCH * sb + W_BORDES * sd + W_SSIM * sc
 
         estado = (
             "NORMAL"      if score_final >= UMBRAL_NORMAL      else
@@ -447,6 +535,7 @@ def comparar():
             "debug": {
                 "score_histograma": round(sa, 4),
                 "score_matches":    round(sb, 4),
+                "score_bordes":     round(sd, 4),
                 "score_ssim":       round(sc, 4),
                 "alineacion_ok":    info_alin["alineada"],
                 "motivo":           info_alin.get("motivo", ""),

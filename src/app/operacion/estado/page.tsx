@@ -29,6 +29,7 @@ type ResultadoComparacion = {
     cobertura_mascara?:  number;
     score_histograma?:   number;
     score_matches?:      number;
+    score_bordes?:       number;
     score_ssim?:         number;
   };
 };
@@ -76,8 +77,8 @@ const marcoConfig: Record<Vista, { rect: { x: number; y: number; w: number; h: n
 };
 
 // ── OVERLAY DE PATRÓN RECORTADO ──────────────────────────────────────────────
-// Dibuja la imagen patrón recortada exactamente al área del marco en un canvas,
-// para que el operador vea la silueta de referencia alineada con lo que el sistema capturará.
+// Dibuja la imagen patrón del vehículo adaptada para que cubra completamente
+// el área de captura (marco) manteniendo sus proporciones.
 function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { rect } = marcoConfig[vista];
@@ -91,20 +92,41 @@ function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // Calcular el recorte en píxeles de la imagen patrón
-      const srcX = (rect.x / 100) * img.naturalWidth;
-      const srcY = (rect.y / 100) * img.naturalHeight;
-      const srcW = (rect.w / 100) * img.naturalWidth;
-      const srcH = (rect.h / 100) * img.naturalHeight;
+      // Dimensiones dinámicas del canvas en pantalla
+      const cw = canvas.offsetWidth || 640;
+      const ch = canvas.offsetHeight || 480;
 
-      // El canvas ocupa todo el contenedor — dibujar el recorte estirado al tamaño completo
-      canvas.width  = canvas.offsetWidth  || 640;
-      canvas.height = canvas.offsetHeight || 480;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.globalAlpha = 0.40;
-      // Dibujar el recorte del patrón ocupando todo el canvas
-      // (el operador debe llenar ese encuadre con el vehículo real)
-      ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+      canvas.width = cw;
+      canvas.height = ch;
+      ctx.clearRect(0, 0, cw, ch);
+
+      // 1. Calcular en píxeles la ubicación y tamaño del marco sobre la pantalla
+      const destX = (rect.x / 100) * cw;
+      const destY = (rect.y / 100) * ch;
+      const destW = (rect.w / 100) * cw;
+      const destH = (rect.h / 100) * ch;
+
+      // 2. Proporción aspect-ratio ("object-cover") para que la imagen
+      // llene el rectángulo del marco sin distorsionarse ni dejar bordes.
+      const imgRatio = img.naturalWidth / img.naturalHeight;
+      const rectRatio = destW / destH;
+
+      let srcX = 0, srcY = 0, srcW = img.naturalWidth, srcH = img.naturalHeight;
+
+      if (imgRatio > rectRatio) {
+        // La imagen es más ancha que el marco: recortamos los lados sobrantes
+        srcW = img.naturalHeight * rectRatio;
+        srcX = (img.naturalWidth - srcW) / 2;
+      } else {
+        // La imagen es más alta que el marco: recortamos arriba y abajo
+        srcH = img.naturalWidth / rectRatio;
+        srcY = (img.naturalHeight - srcH) / 2;
+      }
+
+      ctx.globalAlpha = 0.40; // Opacidad de la guía de referencia
+      
+      // 3. Dibujar únicamente la imagen ajustada EXACTAMENTE dentro de las coordenadas del marco
+      ctx.drawImage(img, srcX, srcY, srcW, srcH, destX, destY, destW, destH);
     };
     img.src = src;
   }, [src, vista, rect]);
@@ -181,6 +203,10 @@ function PantallaResultado({
               {resultado.debug.score_matches !== undefined && (<>
                 <span className="text-slate-400">Matches SIFT</span>
                 <span>{Math.round(resultado.debug.score_matches * 100)}%</span>
+              </>)}
+              {resultado.debug.score_bordes !== undefined && (<>
+                <span className="text-slate-400">Bordes Canny</span>
+                <span>{Math.round(resultado.debug.score_bordes * 100)}%</span>
               </>)}
               {resultado.debug.score_ssim !== undefined && (<>
                 <span className="text-slate-400">SSIM interior</span>
