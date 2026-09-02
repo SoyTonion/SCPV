@@ -176,16 +176,30 @@ export default function ScannerPernocta() {
             );
           })() : (
             <div className="flex flex-col items-center text-center py-6">
-              <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-3xl mb-4">
-                ✕
+              <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl mb-4 ${
+                !resultado.ok && resultado.duplicado
+                  ? 'bg-amber-100 text-amber-600'
+                  : 'bg-red-100 text-red-600'
+              }`}>
+                {!resultado.ok && resultado.duplicado ? '⟳' : '✕'}
               </div>
-              <h3 className="text-2xl font-bold text-slate-800 mb-2">No se pudo registrar</h3>
-              <p className="text-sm text-slate-500 mb-6">{resultado.error}</p>
+              <h3 className="text-2xl font-bold text-slate-800 mb-2">
+                {!resultado.ok && resultado.duplicado ? 'Vehículo ya escaneado' : 'No se pudo registrar'}
+              </h3>
+              <p className="text-sm text-slate-500 mb-4">{resultado.error}</p>
+              {!resultado.ok && resultado.duplicado && (
+                <div className="w-full bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-left">
+                  <p className="text-xs font-semibold text-amber-700 mb-1">Atención:</p>
+                  <p className="text-sm text-amber-800">
+                    Este vehículo ya fue registrado en el rondín de hoy. No es necesario escanearlo de nuevo.
+                  </p>
+                </div>
+              )}
               <button
                 onClick={reiniciar}
                 className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-semibold rounded-lg p-3 transition-colors"
               >
-                Intentar de nuevo
+                Escanear otro vehículo
               </button>
             </div>
           )
