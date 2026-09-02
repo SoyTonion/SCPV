@@ -15,12 +15,9 @@ export type ResultadoEscaneo =
         submarca: string;
         departamento: string | null;
       };
-      // null = vehículo aplica pernocta normal en base
-      // string = tiene autorización vigente fuera de base (motivo)
-      // false = NO aplica pernocta y NO tiene autorización
       estadoPernocta: string | null | false;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; duplicado?: boolean };
 
 export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscaneo> {
   try {
@@ -115,7 +112,21 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
       });
     }
 
-    // 8. Guardar el registro de escaneo
+    // 9. Verificar si este vehículo ya fue escaneado en el rondín de hoy
+    const escaneoExistente = await prisma.escaneo.findFirst({
+      where: { rondinId: rondin.id, vehiculoId: vehiculo.id },
+      select: { fechaHora: true },
+    });
+
+    if (escaneoExistente) {
+      return {
+        ok: false,
+        error: `Este vehículo ya fue registrado hoy a las ${escaneoExistente.fechaHora.toLocaleTimeString("es-MX", { timeStyle: "short" })}.`,
+        duplicado: true,
+      };
+    }
+
+    // 10. Guardar el registro de escaneo
     await prisma.escaneo.create({
       data: {
         rondinId: rondin.id,
