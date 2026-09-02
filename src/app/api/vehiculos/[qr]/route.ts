@@ -20,11 +20,17 @@ export async function GET(
     // 2. Extraemos el texto esperando (await) a que los parámetros estén listos
     const { qr } = await params;
     
-    // 3. Buscamos el vehículo en PostgreSQL
+    // 3. Buscamos el vehículo en PostgreSQL y le "pegamos" sus últimos 3 tickets
     const vehiculo = await prisma.vehiculo.findUnique({
       where: {
         qrToken: qr,
       },
+      include: {
+        registrosCombustible: {
+          orderBy: { fechaCarga: 'desc' }, // Los ordenamos del más nuevo al más viejo
+          take: 3, // Solo traemos los últimos 3 para no saturar el celular
+        }
+      }
     });
 
     // 4. Si no existe, mandamos un error 404
@@ -35,7 +41,7 @@ export async function GET(
       );
     }
 
-    // 🆕 [NUEVO CFE] 5. Calcular cuántos litros se ha gastado este mes
+    // 5. Calcular cuántos litros se ha gastado este mes
     const fechaInicioMes = new Date();
     fechaInicioMes.setDate(1); // Día 1 del mes actual
     fechaInicioMes.setHours(0, 0, 0, 0);
@@ -56,12 +62,22 @@ export async function GET(
     // Convertimos la suma a un número normal (si no hay cargas, es 0)
     const litrosConsumidosMes = cargasDelMes._sum.litrosCargados ? Number(cargasDelMes._sum.litrosCargados) : 0;
 
-    // 6. Devolvemos el vehículo formateando los Decimales a Números Reales
+    // 6. Devolvemos el vehículo formateando los Decimales a Números Reales y BigInt a Texto
+    const { registrosCombustible, ...datosVehiculo } = vehiculo;
+
     return NextResponse.json({
-      ...vehiculo,
-      capacidadTanque: vehiculo.capacidadTanque ? Number(vehiculo.capacidadTanque) : null,
-      limiteMensualLitros: vehiculo.limiteMensualLitros ? Number(vehiculo.limiteMensualLitros) : null,
-      litrosConsumidosMes: litrosConsumidosMes
+      ...datosVehiculo,
+      id: datosVehiculo.id.toString(), // 👈 AQUÍ SE ARREGLA EL ERROR DEL BIGINT
+      capacidadTanque: datosVehiculo.capacidadTanque ? Number(datosVehiculo.capacidadTanque) : null,
+      limiteMensualLitros: datosVehiculo.limiteMensualLitros ? Number(datosVehiculo.limiteMensualLitros) : null,
+      litrosConsumidosMes: litrosConsumidosMes,
+      // Empaquetamos el historial para que la pantalla del celular lo pueda leer fácil
+      historialReciente: registrosCombustible.map(r => ({
+        id: r.id.toString(),
+        litros: Number(r.litrosCargados),
+        estado: r.estadoAprobacion,
+        fecha: r.fechaCarga ? new Date(r.fechaCarga).toLocaleDateString('es-MX') : 'S/F'
+      }))
     });
 
   } catch (error) {

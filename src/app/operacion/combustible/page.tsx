@@ -13,6 +13,8 @@ interface VehiculoData {
   capacidadTanque: number | null; 
   limiteMensualLitros: number | null;
   litrosConsumidosMes: number;
+  // 🆕 [NUEVO CFE] Para leer el historial
+  historialReciente?: { id: string, litros: number, estado: string, fecha: string }[];
 }
 
 interface ErroresValidacion {
@@ -80,7 +82,6 @@ export default function CombustibleClient() {
     return null;
   }, [litros, importe]);
 
-  // 🆕 [NUEVO CFE] Cálculo del porcentaje de progreso del límite mensual
   const progresoMensual = useMemo(() => {
     if (!vehiculoData || !vehiculoData.limiteMensualLitros) return null;
     const consumidos = vehiculoData.litrosConsumidosMes;
@@ -90,9 +91,8 @@ export default function CombustibleClient() {
     const litrosIntento = parseFloat(litros) || 0;
     const porcentajeProyectado = Math.min(((consumidos + litrosIntento) / limite) * 100, 100);
     
-    // Lógica dinámica de estado según el porcentaje
     let estadoTexto = '✅ Estado: Normal';
-    let estadoColor = 'text-[#007A33]'; // Verde CFE
+    let estadoColor = 'text-[#007A33]'; 
 
     const totalCalculado = consumidos + litrosIntento;
 
@@ -107,7 +107,6 @@ export default function CombustibleClient() {
       estadoColor = 'text-yellow-600';
     }
 
-    // 👇 Aquí está la corrección: Devolvemos las propiedades que TypeScript pedía
     return {
       porcentaje,
       porcentajeProyectado,
@@ -239,6 +238,8 @@ export default function CombustibleClient() {
           capacidadTanque: datosVehiculo.capacidadTanque ? parseFloat(datosVehiculo.capacidadTanque) : null,
           limiteMensualLitros: datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : null,
           litrosConsumidosMes: datosVehiculo.litrosConsumidosMes || 0,
+          // 🆕 [NUEVO CFE] Guardamos el historial
+          historialReciente: datosVehiculo.historialReciente || [],
         });
         setVehiculoId(datosVehiculo.id);
         limpiarError('vehiculo');
@@ -606,7 +607,7 @@ export default function CombustibleClient() {
                       </button>
                     </div>
 
-{/* 🆕 [NUEVO CFE] DASHBOARD VISUAL DE LÍMITE MENSUAL */}
+                    {/* 🆕 [NUEVO CFE] DASHBOARD VISUAL DE LÍMITE MENSUAL */}
                     {progresoMensual && (
                       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
                         <div className="flex justify-between items-end mb-2">
@@ -642,6 +643,29 @@ export default function CombustibleClient() {
                           <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
                             Disponibles: {progresoMensual.disponibles} L
                           </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 🆕 [NUEVO CFE] HISTORIAL RECIENTE PARA EL CHOFER */}
+                    {vehiculoData.historialReciente && vehiculoData.historialReciente.length > 0 && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 shadow-sm mt-3">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Últimas 3 Cargas</p>
+                        <div className="space-y-1.5">
+                          {vehiculoData.historialReciente.map((ticket, i) => (
+                            <div key={i} className="flex justify-between items-center text-xs bg-white px-2 py-1.5 rounded-md border border-slate-100">
+                              <span className="text-slate-500 font-medium">{ticket.fecha} - <span className="font-bold text-slate-700">{ticket.litros}L</span></span>
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                ticket.estado === 'APROBADA' ? 'bg-green-100 text-green-700' :
+                                ticket.estado === 'RECHAZADA' ? 'bg-red-100 text-red-700' :
+                                'bg-amber-100 text-amber-700'
+                              }`}>
+                                {ticket.estado === 'APROBADA' ? '✓ Aprobada' : 
+                                 ticket.estado === 'RECHAZADA' ? '✗ Rechazada' : 
+                                 '⏳ En Revisión'}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}

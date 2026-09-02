@@ -11,12 +11,13 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { vehiculoId, kilometraje, litros, importe } = body;
+    // 🆕 [NUEVO CFE] Recibimos también si es excepción y su justificación
+    const { vehiculoId, kilometraje, litros, importe, esExcepcion, justificacion } = body;
 
     const rutaFalsaEvidencia = "/uploads/ticket_" + Date.now() + ".jpg";
     const kilometrajeNuevo = parseInt(kilometraje);
 
-    // 🆕 [NUEVO CFE] Usamos una "Transacción" para ejecutar dos acciones obligatorias al mismo tiempo
+    // Usamos una "Transacción" para ejecutar dos acciones obligatorias al mismo tiempo
     const [nuevoRegistro, vehiculoActualizado] = await prisma.$transaction([
       // Acción 1: Guardamos el ticket de combustible en la bitácora
       prisma.registroCombustible.create({
@@ -27,6 +28,11 @@ export async function POST(request: Request) {
           litrosCargados: parseFloat(litros),
           costoTotal: parseFloat(importe),
           rutaEvidencia: rutaFalsaEvidencia,
+          
+          // 🆕 [NUEVO CFE] Guardamos los datos de la excepción
+          esExcepcion: esExcepcion || false,
+          justificacion: justificacion || null,
+          estadoAprobacion: esExcepcion ? 'PENDIENTE_REVISION' : 'APROBADA'
         }
       }),
       // Acción 2: Le actualizamos el odómetro al vehículo para bloquear fraudes futuros
@@ -74,5 +80,41 @@ export async function GET() {
   } catch (error) {
     console.error("Error al consultar recargas:", error);
     return NextResponse.json({ error: 'Error al consultar la base de datos.' }, { status: 500 });
+  }
+}
+
+// ==========================================
+// 3. PATCH: Actualiza el estado (Aprobar/Rechazar)
+// ==========================================
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const { id, estadoAprobacion } = body;
+
+    if (!id || !estadoAprobacion) {
+      return NextResponse.json({ error: 'Faltan datos obligatorios.' }, { status: 400 });
+    }
+
+    // Actualizamos el estado en la base de datos
+    // Nota: Como tus IDs usan BigInt, lo convertimos usando BigInt(id)
+    const registroActualizado = await prisma.registroCombustible.update({
+      where: { id: BigInt(id) }, 
+      data: { estadoAprobacion: estadoAprobacion }
+    });
+
+    // Serializamos el BigInt de regreso a String para que React lo entienda
+    const registroSerializado = {
+      ...registroActualizado,
+      id: registroActualizado.id.toString(),
+      vehiculoId: registroActualizado.vehiculoId.toString()
+    };
+
+    return NextResponse.json({ 
+      success: true, 
+      registro: registroSerializado 
+    });
+  } catch (error) {
+    console.error("Error al actualizar la petición:", error);
+    return NextResponse.json({ error: 'Error al actualizar en la base de datos.' }, { status: 500 });
   }
 }

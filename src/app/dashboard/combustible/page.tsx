@@ -1,4 +1,5 @@
 "use client";
+import Link from 'next/link';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -12,6 +13,7 @@ interface Registro {
   litrosCargados: number;
   costoTotal: number;
   fechaCarga: string | null;
+  estadoAprobacion: 'PENDIENTE_REVISION' | 'APROBADA' | 'RECHAZADA'; // 🆕 Añadido para el polling
   vehiculo: {
     marcaVehiculo: string;
     submarcaVehiculo: string;
@@ -26,22 +28,42 @@ export default function CombustibleDashboard() {
   const [cargando, setCargando] = useState(true);
   const [terminoBusqueda, setTerminoBusqueda] = useState('');
   const [periodo, setPeriodo] = useState('mesActual');
+  
+  // 🆕 Estado para el numerito de notificaciones
+  const [peticionesPendientes, setPeticionesPendientes] = useState(0);
 
   useEffect(() => {
-    const cargarDatos = async () => {
+    // 🆕 Función modificada para permitir cargas "silenciosas" (sin spinner)
+    const cargarDatos = async (silencioso = false) => {
+      if (!silencioso) setCargando(true);
       try {
         const res = await fetch('/api/combustible');
         if (res.ok) {
-          const data = await res.json();
+          const data: Registro[] = await res.json();
           setRegistros(data);
+
+          // 🆕 Contamos cuántas peticiones están pendientes
+          const pendientes = data.filter(reg => reg.estadoAprobacion === 'PENDIENTE_REVISION').length;
+          setPeticionesPendientes(pendientes);
         }
       } catch (error) {
         console.error("Error al cargar los datos:", error);
       } finally {
-        setCargando(false);
+        if (!silencioso) setCargando(false);
       }
     };
+    
+    // Carga inicial al entrar
     cargarDatos();
+
+    // 🆕 SMART POLLING: Recarga datos cada 15 segundos SOLO si la pestaña está activa
+    const intervalo = setInterval(() => {
+      if (!document.hidden) {
+        cargarDatos(true); // true = recarga silenciosa en segundo plano
+      }
+    }, 15000);
+
+    return () => clearInterval(intervalo);
   }, []);
 
   const registrosFiltrados = useMemo(() => {
@@ -221,19 +243,10 @@ export default function CombustibleDashboard() {
   const exportarCSV = () => {
     if (registrosFiltrados.length === 0) return;
 
-    // Definir encabezados
     const encabezados = [
-      'Marca',
-      'Submarca',
-      'Placas',
-      'Económico',
-      'Fecha',
-      'Kilometraje',
-      'Litros',
-      'Costo',
+      'Marca', 'Submarca', 'Placas', 'Económico', 'Fecha', 'Kilometraje', 'Litros', 'Costo',
     ];
 
-    // Convertir registros a filas
     const filas = registrosFiltrados.map(reg => [
       reg.vehiculo.marcaVehiculo,
       reg.vehiculo.submarcaVehiculo,
@@ -245,13 +258,11 @@ export default function CombustibleDashboard() {
       reg.costoTotal,
     ]);
 
-    // Crear contenido CSV
     const contenido = [
       encabezados.join(','),
       ...filas.map(fila => fila.map(val => `"${val}"`).join(','))
     ].join('\n');
 
-    // Crear blob y descargar
     const blob = new Blob([contenido], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const enlace = document.createElement('a');
@@ -276,25 +287,47 @@ export default function CombustibleDashboard() {
 
       {/* Contenido principal */}
       <main className="relative z-10 max-w-7xl mx-auto p-4 md:p-8 space-y-6">
-        {/* Título y botón exportar */}
+        {/* Título y botones de acción */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">Análisis de Flotilla</h1>
             <p className="text-slate-500 text-sm font-medium mt-1">Monitoreo de rendimiento, consumo y alertas operativas.</p>
           </div>
-          <button
-            onClick={exportarCSV}
-            disabled={registrosFiltrados.length === 0}
-            className="inline-flex items-center justify-center gap-2 bg-white/80 backdrop-blur-md border border-[#007A33]/30 text-[#007A33] font-bold rounded-xl py-2.5 px-4 shadow-sm hover:bg-[#007A33]/5 hover:border-[#007A33]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Exportar CSV
-          </button>
+          
+          <div className="flex items-center gap-3">
+            {/* 🆕 BOTÓN DE PETICIONES CON NOTIFICACIÓN EN TIEMPO REAL */}
+            <Link
+              href="/dashboard/combustible/Peticiones"
+              className="relative inline-flex items-center justify-center gap-2 bg-white/80 backdrop-blur-md border border-amber-400/50 text-amber-700 font-bold rounded-xl py-2.5 px-4 shadow-sm hover:bg-amber-50 transition-all group"
+            >
+              <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Revisar Peticiones
+              
+              {/* Solo muestra el circulito rojo si hay más de 0 peticiones pendientes */}
+              {peticionesPendientes > 0 && (
+                <span className="absolute -top-2 -right-2 flex items-center justify-center h-5 w-5 bg-red-500 border-2 border-white rounded-full text-[10px] font-black text-white shadow-sm animate-in zoom-in">
+                  {peticionesPendientes}
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-50 z-[-1]"></span>
+                </span>
+              )}
+            </Link>
+
+            <button
+              onClick={exportarCSV}
+              disabled={registrosFiltrados.length === 0}
+              className="inline-flex items-center justify-center gap-2 bg-white/80 backdrop-blur-md border border-[#007A33]/30 text-[#007A33] font-bold rounded-xl py-2.5 px-4 shadow-sm hover:bg-[#007A33]/5 hover:border-[#007A33]/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Exportar CSV
+            </button>
+          </div>
         </div>
 
-        {/* Resumen ejecutivo - MODIFICADO A VERDE CRISTAL */}
+        {/* Resumen ejecutivo */}
         {resumenEjecutivo.length > 0 && (
           <div className="bg-[#007A33]/5 backdrop-blur-md border border-[#007A33]/30 rounded-2xl p-4 flex items-start gap-4 shadow-sm">
             <div className="bg-[#007A33]/20 p-2 rounded-full shrink-0">
@@ -364,7 +397,6 @@ export default function CombustibleDashboard() {
 
         {/* KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI Volumen */}
           <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-[#007A33]/20 hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-2">
               <p className="text-sm font-bold text-slate-500">Volumen Cargado</p>
@@ -379,7 +411,6 @@ export default function CombustibleDashboard() {
             </p>
           </div>
 
-          {/* KPI Gasto */}
           <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-[#007A33]/20 hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-2">
               <p className="text-sm font-bold text-slate-500">Gasto Operativo</p>
@@ -394,7 +425,6 @@ export default function CombustibleDashboard() {
             </p>
           </div>
 
-          {/* KPI Rendimiento */}
           <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-[#007A33]/20 hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-2">
               <p className="text-sm font-bold text-slate-500">Rendimiento Promedio</p>
@@ -409,7 +439,6 @@ export default function CombustibleDashboard() {
             </p>
           </div>
 
-          {/* KPI Flotilla */}
           <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-sm border border-[#007A33]/20 hover:shadow-md transition-shadow">
             <div className="flex justify-between items-start mb-2">
               <p className="text-sm font-bold text-slate-500">Flotilla Activa</p>
@@ -425,7 +454,6 @@ export default function CombustibleDashboard() {
           </div>
         </div>
 
-        {/* Contenedor principal */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Gráfica */}
           <div className="lg:col-span-2 bg-white/80 backdrop-blur-md p-6 rounded-2xl shadow-sm border border-[#007A33]/20">
