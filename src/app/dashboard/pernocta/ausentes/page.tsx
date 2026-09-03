@@ -1,5 +1,6 @@
 import { getResumenPernocta, type VehiculoAusente } from './actions'
 import Link from 'next/link'
+import BarraProgreso from './BarraProgreso'
 
 function TarjetaConteo({
   valor,
@@ -172,25 +173,7 @@ export default async function AusentesPage() {
 
       {/* Barra de progreso del rondín */}
       {data.rondinActivo && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="flex justify-between text-sm font-semibold text-slate-700 mb-2">
-            <span>Progreso del rondín</span>
-            <span>{verificados} de {data.totalFlota} verificados</span>
-          </div>
-          <div className="w-full bg-slate-100 rounded-full h-3">
-            <div
-              className="bg-emerald-500 h-3 rounded-full transition-all"
-              style={{ width: `${data.totalFlota > 0 ? Math.round((verificados / data.totalFlota) * 100) : 0}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-xs text-slate-400 mt-1">
-            <span>0%</span>
-            <span className="font-medium text-emerald-600">
-              {data.totalFlota > 0 ? Math.round((verificados / data.totalFlota) * 100) : 0}% completado
-            </span>
-            <span>100%</span>
-          </div>
-        </div>
+        <BarraProgreso verificados={verificados} totalFlota={data.totalFlota} />
       )}
 
       {/* Banner de alerta solo si hay rondín Y hay sin justificar */}

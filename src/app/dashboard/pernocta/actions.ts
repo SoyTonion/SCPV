@@ -50,20 +50,16 @@ export async function getPernoctaDashboardStats() {
 
     // 4. Escaneos de la semana actual agrupados por día
     const hoy = new Date()
-    // Lunes de la semana actual
     const lunes = new Date(hoy)
     lunes.setHours(0, 0, 0, 0)
     lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7))
 
-    // Domingo al final de la semana
     const domingo = new Date(lunes)
     domingo.setDate(lunes.getDate() + 6)
     domingo.setHours(23, 59, 59, 999)
 
     const escaneosSemanales = await prisma.escaneo.findMany({
-      where: {
-        fechaHora: { gte: lunes, lte: domingo },
-      },
+      where: { fechaHora: { gte: lunes, lte: domingo } },
       select: { fechaHora: true },
     })
 
@@ -73,7 +69,6 @@ export async function getPernoctaDashboardStats() {
     }
 
     for (const escaneo of escaneosSemanales) {
-      // getDay() retorna 0=Dom,1=Lun...6=Sáb; convertimos a índice 0=Lun
       const idx = (escaneo.fechaHora.getDay() + 6) % 7
       conteosPorDia[dias[idx]] += 1
     }
@@ -82,6 +77,79 @@ export async function getPernoctaDashboardStats() {
       day,
       escaneos: conteosPorDia[day],
     }))
+
+    // 5. Escaneos de los últimos 30 días agrupados por fecha
+    const hace30 = new Date(hoy)
+    hace30.setDate(hoy.getDate() - 29)
+    hace30.setHours(0, 0, 0, 0)
+
+    const escaneos30dias = await prisma.escaneo.findMany({
+      where: { fechaHora: { gte: hace30 } },
+      select: { fechaHora: true },
+      orderBy: { fechaHora: 'asc' },
+    })
+
+    const mapaFechas: Record<string, number> = {}
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(hace30)
+      d.setDate(hace30.getDate() + i)
+      mapaFechas[d.toISOString().split('T')[0]] = 0
+    }
+    for (const e of escaneos30dias) {
+      const key = e.fechaHora.toISOString().split('T')[0]
+      if (key in mapaFechas) mapaFechas[key] += 1
+    }
+    const historial30dias = Object.entries(mapaFechas).map(([fecha, escaneos]) => ({
+      fecha: new Date(fecha + 'T12:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }),
+      escaneos,
+    }))
+
+    // 6. Rondines completados por guardia (últimos 30 días)
+    const rondinsPorGuardia = await prisma.rondin.groupBy({
+      by: ['guardiaId'],
+      where: { fecha: { gte: hace30 } },
+      _count: { id: true },
+    })
+
+    const guardiasIds = rondinsPorGuardia.map(r => r.guardiaId)
+    const guardias = guardiasIds.length > 0
+      ? await prisma.usuario.findMany({
+          where: { id: { in: guardiasIds } },
+          select: { id: true, nombre: true },
+        })
+      : []
+    const mapaGuardias = new Map(guardias.map(g => [g.id, g.nombre]))
+
+    const actividadGuardias = rondinsPorGuardia.map(r => ({
+      nombre: mapaGuardias.get(r.guardiaId)?.split(' ')[0] ?? `Guardia ${r.guardiaId}`,
+      rondines: r._count.id,
+    })).sort((a, b) => b.rondines - a.rondines).slice(0, 6)
+
+    // 7. Vehículos por departamento (solo los que aplican pernocta)
+    const porDepartamento = await prisma.vehiculo.groupBy({
+      by: ['departamentoId'],
+      where: { vehiculoPernocta: true, departamentoId: { not: null } },
+      _count: { id: true },
+    })
+
+    const deptoIds = porDepartamento.map(d => d.departamentoId).filter(Boolean) as number[]
+    const deptos = deptoIds.length > 0
+      ? await prisma.departamento.findMany({
+          where: { id: { in: deptoIds } },
+          select: { id: true, nombreDepartamento: true },
+        })
+      : []
+    const mapaDeptos = new Map(deptos.map(d => [d.id, d.nombreDepartamento]))
+
+    const coloresDeptos = ['#007A33', '#3B82F6', '#F97316', '#06B6D4', '#8B5CF6', '#E11D48', '#84CC16', '#F59E0B']
+    const vehiculosPorDepto = porDepartamento
+      .map((d, idx) => ({
+        nombre: mapaDeptos.get(d.departamentoId!)?.replace('DISTRIBUCIÓN', 'DIST.').replace('COMERCIAL', 'COM.') ?? 'Sin depto',
+        total: d._count.id,
+        color: coloresDeptos[idx % coloresDeptos.length],
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
 
     return {
       success: true,
@@ -93,6 +161,9 @@ export async function getPernoctaDashboardStats() {
         tipos,
         ultimosRegistros,
         movimientosSemana,
+        historial30dias,
+        actividadGuardias,
+        vehiculosPorDepto,
       },
     }
   } catch (error) {

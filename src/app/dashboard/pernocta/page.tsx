@@ -31,6 +31,9 @@ export default async function PernoctaPage() {
 
   const tiposData = data?.tipos || []
   const ultimosRegistros = data?.ultimosRegistros || []
+  const historial30dias = data?.historial30dias || []
+  const actividadGuardias = data?.actividadGuardias || []
+  const vehiculosPorDepto = data?.vehiculosPorDepto || []
 
   return (
     <PernoctaCharts
@@ -39,6 +42,9 @@ export default async function PernoctaPage() {
       tiposData={tiposData}
       ultimosRegistros={ultimosRegistros}
       ausentesSinJustificar={ausentesSinJustificar}
+      historial30dias={historial30dias}
+      actividadGuardias={actividadGuardias}
+      vehiculosPorDepto={vehiculosPorDepto}
     />
   )
 }
