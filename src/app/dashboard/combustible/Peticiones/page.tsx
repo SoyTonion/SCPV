@@ -20,20 +20,31 @@ interface RegistroExcepcion {
   };
 }
 
+interface ConfirmacionAccion {
+  id: string;
+  estado: 'APROBADA' | 'RECHAZADA';
+  placas: string;
+  economico: string;
+}
+
 export default function PeticionesView() {
   const [peticiones, setPeticiones] = useState<RegistroExcepcion[]>([]);
   const [cargando, setCargando] = useState(true);
   const [procesandoId, setProcesandoId] = useState<string | null>(null);
   const [filtroActivo, setFiltroActivo] = useState<'PENDIENTES' | 'HISTORIAL'>('PENDIENTES');
+  
+  const [confirmacion, setConfirmacion] = useState<ConfirmacionAccion | null>(null);
 
-  // Cargamos los datos reutilizando tu API existente
+  // 🆕 Estados para la nueva búsqueda del Historial
+  const [busquedaTexto, setBusquedaTexto] = useState('');
+  const [busquedaFecha, setBusquedaFecha] = useState('');
+
   useEffect(() => {
     const cargarPeticiones = async () => {
       try {
         const res = await fetch('/api/combustible');
         if (res.ok) {
           const data: RegistroExcepcion[] = await res.json();
-          // Solo nos interesan los registros que fueron marcados como excepción
           const excepciones = data.filter(reg => reg.esExcepcion);
           setPeticiones(excepciones);
         }
@@ -46,29 +57,59 @@ export default function PeticionesView() {
     cargarPeticiones();
   }, []);
 
-  // Filtramos visualmente según la pestaña seleccionada
+  // 🆕 Lógica de filtrado mejorada para incluir la búsqueda
   const peticionesMostradas = useMemo(() => {
     if (filtroActivo === 'PENDIENTES') {
       return peticiones.filter(p => p.estadoAprobacion === 'PENDIENTE_REVISION');
     } else {
-      return peticiones.filter(p => p.estadoAprobacion !== 'PENDIENTE_REVISION');
-    }
-  }, [peticiones, filtroActivo]);
+      let historial = peticiones.filter(p => p.estadoAprobacion !== 'PENDIENTE_REVISION');
 
-  // Función para aprobar o rechazar
-  const cambiarEstado = async (id: string, nuevoEstado: 'APROBADA' | 'RECHAZADA') => {
-    setProcesandoId(id);
+      // Filtrar por texto (Eco o Placas)
+      if (busquedaTexto.trim() !== '') {
+        const termino = busquedaTexto.toLowerCase();
+        historial = historial.filter(p => 
+          (p.vehiculo.economico?.toLowerCase() || '').includes(termino) ||
+          (p.vehiculo.placas?.toLowerCase() || '').includes(termino) ||
+          (p.vehiculo.marcaVehiculo.toLowerCase() || '').includes(termino)
+        );
+      }
+
+      // Filtrar por fecha exacta
+      if (busquedaFecha !== '') {
+        historial = historial.filter(p => {
+          if (!p.fechaCarga) return false;
+          // Asumiendo que fechaCarga viene en formato ISO (ej. 2026-08-15T...)
+          return p.fechaCarga.startsWith(busquedaFecha);
+        });
+      }
+
+      return historial;
+    }
+  }, [peticiones, filtroActivo, busquedaTexto, busquedaFecha]);
+
+  const iniciarCambioEstado = (id: string, nuevoEstado: 'APROBADA' | 'RECHAZADA', placas: string, economico: string) => {
+    setConfirmacion({ id, estado: nuevoEstado, placas: placas || 'S/N', economico: economico || 'S/N' });
+  };
+
+  const ejecutarCambioEstado = async () => {
+    if (!confirmacion) return;
+    
+    setProcesandoId(confirmacion.id);
+    const idAProcesar = confirmacion.id;
+    const nuevoEstado = confirmacion.estado;
+    
+    setConfirmacion(null);
+
     try {
       const res = await fetch('/api/combustible', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, estadoAprobacion: nuevoEstado }),
+        body: JSON.stringify({ id: idAProcesar, estadoAprobacion: nuevoEstado }),
       });
 
       if (res.ok) {
-        // Actualizamos el estado local para que la tarjeta desaparezca/cambie sin recargar la página
         setPeticiones(prev => 
-          prev.map(p => p.id === id ? { ...p, estadoAprobacion: nuevoEstado } : p)
+          prev.map(p => p.id === idAProcesar ? { ...p, estadoAprobacion: nuevoEstado } : p)
         );
       } else {
         alert("Error al actualizar el estado.");
@@ -81,8 +122,14 @@ export default function PeticionesView() {
     }
   };
 
+  // Función para limpiar los filtros
+  const limpiarFiltros = () => {
+    setBusquedaTexto('');
+    setBusquedaFecha('');
+  };
+
   return (
-    <div className="min-h-screen font-sans relative overflow-hidden bg-linear-to-br from-slate-100 via-white to-slate-200">
+    <div className="min-h-screen font-sans relative overflow-hidden bg-gradient-to-br from-slate-100 via-white to-slate-200">
       {/* Elementos decorativos */}
       <div className="absolute inset-0 pointer-events-none">
         <svg className="absolute top-0 left-0 w-full h-64 opacity-30" viewBox="0 0 1440 320" preserveAspectRatio="none">
@@ -92,7 +139,7 @@ export default function PeticionesView() {
 
       <main className="relative z-10 max-w-5xl mx-auto p-4 md:p-8 space-y-6">
         {/* Enlace para volver */}
-        <Link href="/dashboard/combustible" className="flex items-center gap-1 text-xs text-slate-600 hover:text-[#007A33] transition-colors w-fit">
+        <Link href="/dashboard/combustible" className="flex items-center gap-1 text-xs text-slate-600 hover:text-[#007A33] transition-colors w-fit cursor-pointer">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
           </svg>
@@ -109,7 +156,7 @@ export default function PeticionesView() {
         <div className="flex border-b border-slate-200">
           <button
             onClick={() => setFiltroActivo('PENDIENTES')}
-            className={`pb-3 px-4 text-sm font-bold transition-all relative ${
+            className={`pb-3 px-4 text-sm font-bold transition-all relative cursor-pointer ${
               filtroActivo === 'PENDIENTES' ? 'text-amber-600' : 'text-slate-400 hover:text-slate-600'
             }`}
           >
@@ -120,7 +167,7 @@ export default function PeticionesView() {
           </button>
           <button
             onClick={() => setFiltroActivo('HISTORIAL')}
-            className={`pb-3 px-4 text-sm font-bold transition-all relative ${
+            className={`pb-3 px-4 text-sm font-bold transition-all relative cursor-pointer ${
               filtroActivo === 'HISTORIAL' ? 'text-[#007A33]' : 'text-slate-400 hover:text-slate-600'
             }`}
           >
@@ -130,6 +177,47 @@ export default function PeticionesView() {
             )}
           </button>
         </div>
+
+        {/* 🆕 BARRA DE BÚSQUEDA (Solo visible en Historial) */}
+        {filtroActivo === 'HISTORIAL' && (
+          <div className="bg-white/80 backdrop-blur-md p-3 rounded-2xl shadow-sm border border-[#007A33]/20 flex flex-col md:flex-row gap-3 items-center animate-in fade-in slide-in-from-top-2">
+            
+            {/* Buscador por Texto */}
+            <div className="w-full flex-1 flex items-center bg-slate-50/50 rounded-xl px-4 py-2.5 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#007A33]/20 transition-all border border-transparent focus-within:border-[#007A33]/30">
+              <svg className="h-5 w-5 text-slate-400 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Buscar por Eco, Placas o Marca..."
+                value={busquedaTexto}
+                onChange={(e) => setBusquedaTexto(e.target.value)}
+                className="bg-transparent border-none outline-none w-full text-sm text-slate-700 placeholder-slate-400 font-medium"
+              />
+            </div>
+
+            {/* Buscador por Fecha */}
+            <div className="w-full md:w-auto flex items-center bg-slate-50/50 rounded-xl px-4 py-2.5 focus-within:bg-white focus-within:ring-2 focus-within:ring-[#007A33]/20 transition-all border border-transparent focus-within:border-[#007A33]/30">
+              <input
+                type="date"
+                value={busquedaFecha}
+                onChange={(e) => setBusquedaFecha(e.target.value)}
+                className="bg-transparent border-none outline-none w-full text-sm text-slate-700 font-medium cursor-pointer"
+              />
+            </div>
+
+            {/* Botón de Limpiar */}
+            {(busquedaTexto !== '' || busquedaFecha !== '') && (
+              <button 
+                onClick={limpiarFiltros}
+                className="w-full md:w-auto px-4 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 font-bold rounded-xl text-sm transition-colors cursor-pointer flex items-center justify-center gap-1 shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                Limpiar
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Contenido (Grid de Tarjetas) */}
         {cargando ? (
@@ -146,8 +234,10 @@ export default function PeticionesView() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
-            <h3 className="text-slate-700 font-bold">Todo al día</h3>
-            <p className="text-sm text-slate-500 mt-1">No hay peticiones {filtroActivo === 'PENDIENTES' ? 'pendientes por revisar' : 'en el historial'}.</p>
+            <h3 className="text-slate-700 font-bold">Sin resultados</h3>
+            <p className="text-sm text-slate-500 mt-1">
+              No se encontraron registros que coincidan con la búsqueda en {filtroActivo === 'PENDIENTES' ? 'pendientes' : 'el historial'}.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -204,16 +294,16 @@ export default function PeticionesView() {
                   {filtroActivo === 'PENDIENTES' ? (
                     <div className="flex gap-2">
                       <button
-                        onClick={() => cambiarEstado(pet.id, 'RECHAZADA')}
+                        onClick={() => iniciarCambioEstado(pet.id, 'RECHAZADA', pet.vehiculo.placas || '', pet.vehiculo.economico || '')}
                         disabled={procesandoId === pet.id}
-                        className="flex-1 py-2 bg-white border border-red-200 text-red-600 hover:bg-red-50 font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+                        className="flex-1 py-2 bg-white border border-red-200 text-red-600 hover:bg-red-50 font-bold rounded-xl text-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Rechazar
                       </button>
                       <button
-                        onClick={() => cambiarEstado(pet.id, 'APROBADA')}
+                        onClick={() => iniciarCambioEstado(pet.id, 'APROBADA', pet.vehiculo.placas || '', pet.vehiculo.economico || '')}
                         disabled={procesandoId === pet.id}
-                        className="flex-1 py-2 bg-[#007A33] text-white hover:bg-[#005c26] font-bold rounded-xl text-sm transition-colors disabled:opacity-50 shadow-sm"
+                        className="flex-1 py-2 bg-[#007A33] text-white hover:bg-[#005c26] font-bold rounded-xl text-sm transition-colors shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {procesandoId === pet.id ? 'Guardando...' : 'Aprobar'}
                       </button>
@@ -233,6 +323,62 @@ export default function PeticionesView() {
           </div>
         )}
       </main>
+
+      {/* MODAL FLOTANTE DE CONFIRMACIÓN */}
+      {confirmacion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Cabecera del modal con color dinámico */}
+            <div className={`p-4 ${confirmacion.estado === 'APROBADA' ? 'bg-[#007A33]/10' : 'bg-red-50'}`}>
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-full ${confirmacion.estado === 'APROBADA' ? 'bg-[#007A33]/20 text-[#007A33]' : 'bg-red-100 text-red-600'}`}>
+                  {confirmacion.estado === 'APROBADA' ? (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                  ) : (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                  )}
+                </div>
+                <div>
+                  <h3 className={`font-extrabold ${confirmacion.estado === 'APROBADA' ? 'text-[#007A33]' : 'text-red-700'}`}>
+                    Confirmar Acción
+                  </h3>
+                  <p className="text-xs font-medium text-slate-600">
+                    Eco {confirmacion.economico} - Placas {confirmacion.placas}
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {/* Cuerpo del modal */}
+            <div className="p-5 text-sm text-slate-600 font-medium">
+              ¿Estás seguro de que deseas <strong>{confirmacion.estado === 'APROBADA' ? 'aprobar' : 'rechazar'}</strong> esta carga de combustible excedente?
+              {confirmacion.estado === 'RECHAZADA' && (
+                <p className="mt-2 text-xs text-red-500 font-bold bg-red-50 p-2 rounded-lg border border-red-100">
+                  ⚠️ Esta acción marcará el registro para un posible descuento vía nómina.
+                </p>
+              )}
+            </div>
+
+            {/* Botones del modal */}
+            <div className="p-4 border-t border-slate-100 flex gap-3 bg-slate-50">
+              <button
+                onClick={() => setConfirmacion(null)}
+                className="flex-1 py-2.5 bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={ejecutarCambioEstado}
+                className={`flex-1 py-2.5 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer ${
+                  confirmacion.estado === 'APROBADA' ? 'bg-[#007A33] hover:bg-[#005c26]' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                Sí, {confirmacion.estado === 'APROBADA' ? 'Aprobar' : 'Rechazar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
