@@ -1,5 +1,6 @@
 'use server'
 
+import { unstable_noStore as noStore } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 
 export type VehiculoAusente = {
@@ -26,6 +27,7 @@ export type ResumenPernocta = {
 }
 
 export async function getResumenPernocta(): Promise<{ success: true; data: ResumenPernocta } | { success: false; error: string }> {
+  noStore()
   try {
     const hoy = new Date()
     hoy.setHours(0, 0, 0, 0)
