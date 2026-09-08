@@ -35,6 +35,39 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
     const manana = new Date(hoy)
     manana.setDate(hoy.getDate() + 1)
 
+    // 0. Cerrar automáticamente rondines ABIERTOS con más de 30 min sin escaneos
+    const rondinesAbiertos = await prisma.rondin.findMany({
+      where: { estado: 'ABIERTO', fecha: hoy },
+      select: {
+        id: true,
+        escaneos: {
+          orderBy: { fechaHora: 'desc' },
+          take: 1,
+          select: { fechaHora: true },
+        },
+        inicio: true,
+      },
+    })
+
+    const treintaMinutos = 30 * 60 * 1000
+    const ahora = new Date()
+
+    for (const rondin of rondinesAbiertos) {
+      const ultimoEscaneo = rondin.escaneos[0]?.fechaHora ?? rondin.inicio
+      const inactivo = ahora.getTime() - ultimoEscaneo.getTime()
+
+      if (inactivo >= treintaMinutos) {
+        await prisma.rondin.update({
+          where: { id: rondin.id },
+          data: {
+            estado: 'CERRADO',
+            // El fin se marca como 30 min después del último escaneo
+            fin: new Date(ultimoEscaneo.getTime() + treintaMinutos),
+          },
+        })
+      }
+    }
+
     // 1. Todos los vehículos que aplican pernocta
     const flotaPernocta = await prisma.vehiculo.findMany({
       where: { vehiculoPernocta: true },
