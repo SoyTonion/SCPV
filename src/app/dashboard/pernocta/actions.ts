@@ -199,7 +199,19 @@ export async function getVehiculosConMetricas(query: string = '') {
 
     return {
       success: true,
-      data: JSON.parse(JSON.stringify(vehiculos)),
+      data: vehiculos.map((v) => ({
+        id: v.id,
+        economico: v.economico,
+        placas: v.placas,
+        marcaVehiculo: v.marcaVehiculo,
+        submarcaVehiculo: v.submarcaVehiculo,
+        modelo: v.modelo,
+        tipoVehiculo: v.tipoVehiculo,
+        responsable: v.responsable,
+        campoClasificacion: v.campoClasificacion,
+        vehiculoPernocta: v.vehiculoPernocta,
+        departamento: v.departamento,
+      })),
     }
   } catch (error) {
     console.error('Error al obtener vehículos:', error)

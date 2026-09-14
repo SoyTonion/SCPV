@@ -108,6 +108,7 @@ export default function TablaVehiculosPernocta() {
               <th className="p-4">Económico / Placas</th>
               <th className="p-4">Vehículo</th>
               <th className="p-4">Responsable / Depto</th>
+              <th className="p-4">Zona</th>
               <th className="p-4 text-center">¿Pernocta?</th>
               <th className="p-4 text-right">Acciones</th>
             </tr>
@@ -115,13 +116,13 @@ export default function TablaVehiculosPernocta() {
           <tbody className="divide-y divide-slate-100 text-slate-700">
             {cargando ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center text-slate-400">
+                <td colSpan={6} className="p-8 text-center text-slate-400">
                   Cargando vehículos...
                 </td>
               </tr>
             ) : vehiculos.length === 0 ? (
               <tr>
-                <td colSpan={5} className="p-8 text-center text-slate-400">
+                <td colSpan={6} className="p-8 text-center text-slate-400">
                   No se encontraron vehículos.
                 </td>
               </tr>
@@ -151,6 +152,15 @@ export default function TablaVehiculosPernocta() {
                     <div className="text-slate-700 font-medium">{v.responsable}</div>
                     <span className="text-[11px] text-slate-500">
                       {v.departamento?.nombreDepartamento || 'Sin depto'}
+                    </span>
+                  </td>
+
+                  {/* Zona (campoClasificacion) */}
+                  <td className="p-4">
+                    <span className="text-xs text-slate-600">
+                      {v.campoClasificacion && v.campoClasificacion !== '|'
+                        ? v.campoClasificacion
+                        : <span className="text-slate-300 italic">Sin zona</span>}
                     </span>
                   </td>
 
