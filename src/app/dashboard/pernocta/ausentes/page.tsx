@@ -1,6 +1,7 @@
 import { getResumenPernocta } from './actions'
 import Link from 'next/link'
 import AusentesCliente from './AusentesCliente'
+import BotonReportePDF from './BotonReportePDF'
 
 export default async function AusentesPage() {
   const resultado = await getResumenPernocta()
@@ -19,15 +20,18 @@ export default async function AusentesPage() {
       {/* Encabezado estático */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#145c2c]">Reporte de Pernocta — Hoy</h1>
+          <h1 className="text-2xl font-bold text-[#145c2c]">Reporte de Pernocta Hoy</h1>
           <p className="text-slate-500 text-sm mt-1 capitalize">{resultado.data.fecha}</p>
         </div>
-        <Link
-          href="/dashboard/pernocta"
-          className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
-        >
-          ← Volver al módulo
-        </Link>
+        <div className="flex items-center gap-3">
+          <BotonReportePDF />
+          <Link
+            href="/dashboard/pernocta"
+            className="text-sm font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+          >
+            ← Volver al módulo
+          </Link>
+        </div>
       </div>
 
       {/* Contenido dinámico con polling */}
