@@ -89,7 +89,7 @@ export async function generarDatosReporte(fechaISO?: string): Promise<{ success:
       economico: v.economico ?? 'S/N',
       placas: v.placas ?? 'S/P',
       vehiculo: `${v.marcaVehiculo} ${v.submarcaVehiculo}`,
-      responsable: v.responsable,
+      responsable: v.responsable || 'SIN ASIGNAR',
       departamento: v.departamento?.nombreDepartamento ?? 'Sin depto',
       zona: v.campoClasificacion && v.campoClasificacion !== '|'
         ? v.campoClasificacion

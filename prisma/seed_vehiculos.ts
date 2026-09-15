@@ -126,7 +126,7 @@ async function main() {
             buscarColumna(v, 'PROPIO/ARRENDADO', 'Propiedad')
           );
           const responsable = limpiar(
-            buscarColumna(v, 'RESPONSABLE', 'Responsable')
+            buscarColumna(v, 'RESPONSABLE', 'Responsable', 'REPONSABLE', 'Reponsable')
           );
           const clasificacion = limpiar(
             buscarColumna(v, 'CAMPO DE CLASIFICACION', 'Clasificacion')
