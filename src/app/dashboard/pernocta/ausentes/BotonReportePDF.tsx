@@ -125,15 +125,24 @@ async function construirPDF(datos: DatosReporte) {
     doc.text(`Vehículos Verificados en el Rondín (${datos.escaneados.length})`, 14, y)
     y += 4
 
+    const bodyEscaneados: any[] = []
+    let lastZonaEscaneados: string | null = null
+    const sortedEscaneados = [...datos.escaneados].sort((a, b) => a.zona.localeCompare(b.zona) || a.economico.localeCompare(b.economico))
+
+    for (const v of sortedEscaneados) {
+      if (v.zona !== lastZonaEscaneados) {
+        bodyEscaneados.push([{ content: `Zona: ${v.zona}`, colSpan: 5, styles: { fillColor: [210, 225, 215], fontStyle: 'bold', textColor: [30, 41, 59] } }])
+        lastZonaEscaneados = v.zona
+      }
+      bodyEscaneados.push([v.economico, v.placas, v.vehiculo, v.responsable, v.zona])
+    }
+
     autoTable(doc, {
       startY: y,
       head: [['Económico', 'Placas', 'Vehículo', 'Responsable', 'Zona']],
-      body: datos.escaneados.map(v => [
-        v.economico, v.placas, v.vehiculo, v.responsable, v.zona,
-      ]),
+      body: bodyEscaneados,
       styles: { fontSize: 7.5, cellPadding: 2.5 },
       headStyles: { fillColor: [5, 100, 40], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: verdeSuave },
       margin: { left: 14, right: 14 },
     })
     y = (doc as any).lastAutoTable.finalY + 8
@@ -149,15 +158,24 @@ async function construirPDF(datos: DatosReporte) {
     doc.text(`Ausentes con Autorización Vigente (${datos.ausentesAutorizados.length})`, 14, y)
     y += 4
 
+    const bodyAutorizados: any[] = []
+    let lastZonaAuth: string | null = null
+    const sortedAuth = [...datos.ausentesAutorizados].sort((a, b) => a.zona.localeCompare(b.zona) || a.economico.localeCompare(b.economico))
+
+    for (const v of sortedAuth) {
+      if (v.zona !== lastZonaAuth) {
+        bodyAutorizados.push([{ content: `Zona: ${v.zona}`, colSpan: 7, styles: { fillColor: [219, 234, 254], fontStyle: 'bold', textColor: [30, 41, 59] } }])
+        lastZonaAuth = v.zona
+      }
+      bodyAutorizados.push([v.economico, v.placas, v.vehiculo, v.responsable, v.motivo, v.autorizadoPor, v.zona])
+    }
+
     autoTable(doc, {
       startY: y,
-      head: [['Económico', 'Placas', 'Vehículo', 'Responsable', 'Motivo', 'Autorizado por']],
-      body: datos.ausentesAutorizados.map(v => [
-        v.economico, v.placas, v.vehiculo, v.responsable, v.motivo, v.autorizadoPor,
-      ]),
+      head: [['Económico', 'Placas', 'Vehículo', 'Responsable', 'Motivo', 'Autorizado por', 'Zona']],
+      body: bodyAutorizados,
       styles: { fontSize: 7.5, cellPadding: 2.5 },
       headStyles: { fillColor: [30, 64, 175], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [219, 234, 254] },
       margin: { left: 14, right: 14 },
     })
     y = (doc as any).lastAutoTable.finalY + 8
@@ -173,15 +191,24 @@ async function construirPDF(datos: DatosReporte) {
     doc.text(`Vehículos SIN Justificar — REQUIEREN ATENCIÓN (${datos.ausentesSinJustificar.length})`, 14, y)
     y += 4
 
+    const bodySinJustificar: any[] = []
+    let lastZonaSinJustificar: string | null = null
+    const sortedSinJustificar = [...datos.ausentesSinJustificar].sort((a, b) => a.zona.localeCompare(b.zona) || a.economico.localeCompare(b.economico))
+
+    for (const v of sortedSinJustificar) {
+      if (v.zona !== lastZonaSinJustificar) {
+        bodySinJustificar.push([{ content: `Zona: ${v.zona}`, colSpan: 6, styles: { fillColor: [254, 226, 226], fontStyle: 'bold', textColor: [30, 41, 59] } }])
+        lastZonaSinJustificar = v.zona
+      }
+      bodySinJustificar.push([v.economico, v.placas, v.vehiculo, v.responsable, v.departamento, v.zona])
+    }
+
     autoTable(doc, {
       startY: y,
       head: [['Económico', 'Placas', 'Vehículo', 'Responsable', 'Departamento', 'Zona']],
-      body: datos.ausentesSinJustificar.map(v => [
-        v.economico, v.placas, v.vehiculo, v.responsable, v.departamento, v.zona,
-      ]),
+      body: bodySinJustificar,
       styles: { fontSize: 7.5, cellPadding: 2.5 },
       headStyles: { fillColor: [153, 27, 27], textColor: [255, 255, 255], fontStyle: 'bold' },
-      alternateRowStyles: { fillColor: [254, 226, 226] },
       margin: { left: 14, right: 14 },
     })
   }
