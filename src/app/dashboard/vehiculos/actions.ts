@@ -29,7 +29,14 @@ export async function getVehiculosPernocta(search?: string) {
       orderBy: { creadoEn: 'desc' },
     })
 
-    return { success: true, data: vehiculos }
+    const serializedVehiculos = vehiculos.map(v => ({
+      ...v,
+      capacidadTanque: v.capacidadTanque ? Number(v.capacidadTanque) : null,
+      kilometrajeActual: v.kilometrajeActual ? Number(v.kilometrajeActual) : null,
+      limiteMensualLitros: v.limiteMensualLitros ? Number(v.limiteMensualLitros) : null,
+    }))
+
+    return { success: true, data: serializedVehiculos }
   } catch (error) {
     console.error('Error al consultar vehículos:', error)
     return { success: false, error: 'No se pudieron cargar los vehículos.' }
