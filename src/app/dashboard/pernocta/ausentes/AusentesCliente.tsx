@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useTransition } from 'react'
+import { useEffect, useState, useCallback, useTransition, useRef } from 'react'
 import { getResumenPernocta, type ResumenPernocta, type VehiculoAusente } from './actions'
 import BarraProgreso from './BarraProgreso'
 
@@ -80,6 +80,9 @@ export default function AusentesCliente({ inicial }: { inicial: ResumenPernocta 
   const [ultimaActualizacion, setUltimaActualizacion] = useState(new Date())
   const [countdown, setCountdown] = useState(INTERVALO_SEGUNDOS)
   const [isPending, startTransition] = useTransition()
+  const corteEjecutadoRef = useRef(false)
+  // Toast de corte nocturno
+  const [toastCorte, setToastCorte] = useState<string | null>(null)
 
   const verificados      = data.escaneadosOk
   const totalNoEscaneados = data.totalFlota - verificados
@@ -111,8 +114,57 @@ export default function AusentesCliente({ inicial }: { inicial: ResumenPernocta 
     return () => clearInterval(tick)
   }, [])
 
+  // Trigger de corte a las 23:00
+  useEffect(() => {
+    const verificarCorte = () => {
+      const ahora = new Date()
+      const hora = ahora.getHours()
+      const minuto = ahora.getMinutes()
+
+      // Ejecutar entre las 23:00 y 23:01 y solo una vez por sesión
+      if (hora === 23 && minuto === 0 && !corteEjecutadoRef.current) {
+        corteEjecutadoRef.current = true
+        fetch('/api/pernocta/corte-nocturno', { method: 'POST' })
+          .then(r => r.json())
+          .then(res => {
+            if (res.ok) {
+              setToastCorte(`Corte nocturno ejecutado — ${res.rondinsCerrados} rondín(es) cerrado(s) a las ${res.horaCorte}`)
+              refrescar()
+              // Auto-cerrar toast a los 8s
+              setTimeout(() => setToastCorte(null), 8000)
+            }
+          })
+          .catch(() => {})
+      }
+    }
+
+    // Verificar cada minuto
+    const intervalo = setInterval(verificarCorte, 60 * 1000)
+    verificarCorte() // verificar al montar también
+    return () => clearInterval(intervalo)
+  }, [refrescar])
+
   return (
     <div className="space-y-8">
+
+      {/* Toast de corte nocturno */}
+      {toastCorte && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 bg-white/90 backdrop-blur-xl border border-slate-200 shadow-2xl rounded-2xl p-4 w-80"
+          style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
+          <div className="shrink-0 w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center">
+            <span className="text-lg">🌙</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-slate-800">Corte nocturno</p>
+            <p className="text-xs text-slate-500 mt-0.5 leading-snug">{toastCorte}</p>
+          </div>
+          <button onClick={() => setToastCorte(null)} className="text-slate-400 hover:text-slate-600 transition-colors mt-0.5">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {/* Indicador de tiempo real */}
       <div className="flex items-center justify-between">

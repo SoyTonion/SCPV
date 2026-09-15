@@ -393,10 +393,168 @@ def score_bordes(patron_g: np.ndarray, alineada_g: np.ndarray,
 
 # ── Hallazgos ─────────────────────────────────────────────────────────────────
 
+# ── ROIs de componentes por vista ─────────────────────────────────────────────
+# Coordenadas relativas (rx, ry, rw, rh) respecto al bounding box del vehículo.
+# Si el vehículo ocupa casi todo el frame o la máscara es parcial, se aplican sobre 640x640.
+ROIS_POR_VISTA = {
+    "FRONTAL": [
+        {"componente": "LOGO_FRONTAL",   "rx": 0.36, "ry": 0.40, "rw": 0.28, "rh": 0.18, "label": "Logo Frontal"},
+        {"componente": "FARO_IZQUIERDO", "rx": 0.05, "ry": 0.38, "rw": 0.24, "rh": 0.20, "label": "Faro Izq"},
+        {"componente": "FARO_DERECHO",   "rx": 0.71, "ry": 0.38, "rw": 0.24, "rh": 0.20, "label": "Faro Der"},
+        {"componente": "DEFENSA",        "rx": 0.06, "ry": 0.65, "rw": 0.88, "rh": 0.30, "label": "Defensa"},
+        {"componente": "CALCOMANIA",     "rx": 0.36, "ry": 0.70, "rw": 0.28, "rh": 0.20, "label": "Placa / Calcomania"},
+    ],
+    "TRASERA": [
+        {"componente": "LOGO_TRASERO",   "rx": 0.38, "ry": 0.35, "rw": 0.24, "rh": 0.18, "label": "Logo Trasero"},
+        {"componente": "FARO_IZQUIERDO", "rx": 0.05, "ry": 0.36, "rw": 0.22, "rh": 0.26, "label": "Calavera Izq"},
+        {"componente": "FARO_DERECHO",   "rx": 0.73, "ry": 0.36, "rw": 0.22, "rh": 0.26, "label": "Calavera Der"},
+        {"componente": "DEFENSA",        "rx": 0.06, "ry": 0.66, "rw": 0.88, "rh": 0.30, "label": "Defensa Trasera"},
+        {"componente": "CALCOMANIA",     "rx": 0.36, "ry": 0.60, "rw": 0.28, "rh": 0.22, "label": "Placa Trasera"},
+    ],
+    "LATERAL_IZQUIERDA": [
+        {"componente": "ESPEJO_IZQUIERDO", "rx": 0.68, "ry": 0.25, "rw": 0.20, "rh": 0.22, "label": "Espejo Izq"},
+        {"componente": "PUERTA",           "rx": 0.25, "ry": 0.32, "rw": 0.45, "rh": 0.42, "label": "Puerta"},
+        {"componente": "CALCOMANIA",       "rx": 0.32, "ry": 0.38, "rw": 0.30, "rh": 0.24, "label": "Calcomania / No."},
+    ],
+    "LATERAL_DERECHA": [
+        {"componente": "ESPEJO_DERECHO",   "rx": 0.12, "ry": 0.25, "rw": 0.20, "rh": 0.22, "label": "Espejo Der"},
+        {"componente": "PUERTA",           "rx": 0.30, "ry": 0.32, "rw": 0.45, "rh": 0.42, "label": "Puerta"},
+        {"componente": "CALCOMANIA",       "rx": 0.38, "ry": 0.38, "rw": 0.30, "rh": 0.24, "label": "Calcomania / No."},
+    ],
+}
+
+
+def analizar_componentes_especificos(patron_bgr: np.ndarray, captura_bgr: np.ndarray,
+                                     patron_g: np.ndarray, alineada_g: np.ndarray,
+                                     mascara: np.ndarray, vista: str) -> tuple[list, list]:
+    """
+    Evalúa cada región de interés (ROI) configurada para la vista.
+    Devuelve:
+      - lista de hallazgos anómalos para el reporte / BD
+      - lista completa de componentes evaluados con métricas y estado para visualización
+    """
+    rois = ROIS_POR_VISTA.get(vista, [])
+    if not rois:
+        return [], []
+
+    h, w = patron_g.shape[:2]
+    # Determinar el bounding box del vehículo
+    cnts, _ = cv2.findContours(mascara, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if cnts:
+        c_max = max(cnts, key=cv2.contourArea)
+        vx, vy, vw, vh = cv2.boundingRect(c_max)
+        if vw < w * 0.30 or vh < h * 0.30:
+            vx, vy, vw, vh = 0, 0, w, h
+    else:
+        vx, vy, vw, vh = 0, 0, w, h
+
+    hallazgos = []
+    componentes_evaluados = []
+
+    for r in rois:
+        comp = r["componente"]
+        label = r.get("label", comp)
+        x = int(vx + r["rx"] * vw)
+        y = int(vy + r["ry"] * vh)
+        bw = int(r["rw"] * vw)
+        bh = int(r["rh"] * vh)
+
+        # Clamping
+        x = max(0, min(x, w - 10))
+        y = max(0, min(y, h - 10))
+        bw = max(10, min(bw, w - x))
+        bh = max(10, min(bh, h - y))
+
+        roi_p_g = patron_g[y:y+bh, x:x+bw]
+        roi_a_g = alineada_g[y:y+bh, x:x+bw]
+        roi_p_bgr = patron_bgr[y:y+bh, x:x+bw]
+        roi_c_bgr = captura_bgr[y:y+bh, x:x+bw]
+        roi_mask  = mascara[y:y+bh, x:x+bw]
+
+        cobertura_roi = float(np.count_nonzero(roi_mask)) / float(bw * bh)
+        if cobertura_roi < 0.10:
+            continue
+
+        # 1. SSIM local
+        val = (roi_p_g > 5) & (roi_a_g > 5)
+        if np.count_nonzero(val) > 40:
+            ssim_local, _ = compare_ssim(roi_p_g, roi_a_g, full=True, data_range=255)
+            ssim_local = float(np.clip(ssim_local, 0.0, 1.0))
+        else:
+            ssim_local = 0.70
+
+        # 2. Nitidez / Varianza del Laplaciano
+        var_p = float(cv2.Laplacian(roi_p_g, cv2.CV_64F).var())
+        var_c = float(cv2.Laplacian(roi_a_g, cv2.CV_64F).var())
+        ratio_nitidez = var_c / (var_p + 1e-5)
+
+        # 3. Densidad de Bordes (Canny)
+        canny_p = cv2.Canny(roi_p_g, 35, 100)
+        canny_c = cv2.Canny(roi_a_g, 35, 100)
+        dens_p = float(np.count_nonzero(canny_p)) / float(canny_p.size)
+        dens_c = float(np.count_nonzero(canny_c)) / float(canny_c.size)
+        ratio_bordes = dens_c / (dens_p + 1e-5)
+
+        # 4. Color HSV local
+        hsv_p = cv2.cvtColor(roi_p_bgr, cv2.COLOR_BGR2HSV)
+        hsv_c = cv2.cvtColor(roi_c_bgr, cv2.COLOR_BGR2HSV)
+        hist_p = cv2.calcHist([hsv_p], [0, 1], None, [16, 16], [0, 180, 0, 256])
+        hist_c = cv2.calcHist([hsv_c], [0, 1], None, [16, 16], [0, 180, 0, 256])
+        cv2.normalize(hist_p, hist_p)
+        cv2.normalize(hist_c, hist_c)
+        color_corr = float(cv2.compareHist(hist_p, hist_c, cv2.HISTCMP_CORREL))
+        color_corr = max(0.0, (color_corr + 1.0) / 2.0)
+
+        # Diagnóstico de anomalía
+        tipo_hallazgo = None
+        confianza = 0.0
+
+        if dens_p > 0.025 and ratio_bordes < 0.22 and ssim_local < 0.45:
+            tipo_hallazgo = "AUSENTE"
+            confianza = round(min(0.98, max(0.60, 1.0 - ratio_bordes)), 2)
+        elif comp in ("LOGO_FRONTAL", "LOGO_TRASERO", "CALCOMANIA", "NUMERO_ECONOMICO") and var_p > 70 and var_c < 25 and ratio_nitidez < 0.35:
+            tipo_hallazgo = "BORROSO"
+            confianza = round(min(0.95, max(0.55, 1.0 - ratio_nitidez)), 2)
+        elif ssim_local < 0.38 and color_corr < 0.45:
+            tipo_hallazgo = "DEFORMADO"
+            confianza = round(min(0.95, max(0.55, 1.0 - ssim_local)), 2)
+        elif ssim_local < 0.50:
+            tipo_hallazgo = "DETERIORADO"
+            confianza = round(min(0.90, max(0.50, 1.0 - ssim_local)), 2)
+        elif ssim_local < 0.62:
+            tipo_hallazgo = "DIFERENCIA_VISUAL"
+            confianza = round(min(0.85, max(0.40, 1.0 - ssim_local)), 2)
+
+        info_comp = {
+            "componente": comp,
+            "label": label,
+            "region": {"x": x, "y": y, "w": bw, "h": bh},
+            "ssim": round(ssim_local, 3),
+            "nitidez": round(ratio_nitidez, 3),
+            "estado": tipo_hallazgo if tipo_hallazgo else "OK",
+            "confianza": confianza if tipo_hallazgo else round(ssim_local, 2)
+        }
+        componentes_evaluados.append(info_comp)
+
+        if tipo_hallazgo is not None:
+            hallazgos.append({
+                "componente": comp,
+                "tipo": tipo_hallazgo,
+                "confianza": confianza,
+                "region": {"x": x, "y": y, "w": bw, "h": bh},
+                "similitud": round(ssim_local, 3),
+            })
+
+    return hallazgos, componentes_evaluados
+
+
+# ── Hallazgos ─────────────────────────────────────────────────────────────────
+
 def detectar_hallazgos(mapa: np.ndarray, mascara: np.ndarray,
-                       patron_g: np.ndarray, alineada_g: np.ndarray) -> list:
+                       patron_g: np.ndarray, alineada_g: np.ndarray,
+                       hallazgos_especificos: list = None) -> list:
     h, w = mapa.shape
-    diff = ((1.0 - mapa) > 0.30).astype(np.uint8) * 255
+    diff = ((1.0 - mapa) > 0.32).astype(np.uint8) * 255
     val  = ((mascara > 0) & (patron_g > 8) & (alineada_g > 8)).astype(np.uint8) * 255
     diff = cv2.bitwise_and(diff, val)
     diff = cv2.GaussianBlur(diff, (5, 5), 0)
@@ -408,12 +566,30 @@ def detectar_hallazgos(mapa: np.ndarray, mascara: np.ndarray,
     diff = cv2.morphologyEx(diff, cv2.MORPH_CLOSE, kern_close, iterations=1)
 
     cnts, _ = cv2.findContours(diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    out = []
+    out = list(hallazgos_especificos or [])
+    regiones_evaluadas = [h["region"] for h in out]
+
     for c in cnts:
         area = cv2.contourArea(c)
-        if area < (h * w) * 0.005:
+        if area < (h * w) * 0.008:
             continue
         x, y, bw, bh = cv2.boundingRect(c)
+
+        # Evitar duplicar regiones ya cubiertas por los componentes específicos
+        solapado = False
+        for r in regiones_evaluadas:
+            ix1 = max(x, r["x"])
+            iy1 = max(y, r["y"])
+            ix2 = min(x + bw, r["x"] + r["w"])
+            iy2 = min(y + bh, r["y"] + r["h"])
+            if ix2 > ix1 and iy2 > iy1:
+                inter_area = (ix2 - ix1) * (iy2 - iy1)
+                if inter_area > 0.30 * min(area, r["w"] * r["h"]):
+                    solapado = True
+                    break
+        if solapado:
+            continue
+
         cx, cy = (x + bw / 2) / w, (y + bh / 2) / h
         out.append({
             "componente": _comp(cx, cy),
@@ -433,13 +609,43 @@ def _comp(cx: float, cy: float) -> str:
 
 
 def diff_base64(patron_g: np.ndarray, alineada_g: np.ndarray,
-                mapa: np.ndarray, mascara: np.ndarray) -> str:
+                mapa: np.ndarray, mascara: np.ndarray,
+                componentes_evaluados: list = None) -> str:
     diff    = ((1.0 - mapa) * 255).astype(np.uint8)
     diff[mascara == 0] = 127
     colored = cv2.applyColorMap(diff, cv2.COLORMAP_JET)
     base    = cv2.cvtColor(alineada_g, cv2.COLOR_GRAY2BGR)
     overlay = cv2.addWeighted(base, 0.55, colored, 0.45, 0)
-    _, buf  = cv2.imencode(".jpg", overlay, [cv2.IMWRITE_JPEG_QUALITY, 80])
+
+    # Dibujar las regiones de interés sobre la imagen
+    if componentes_evaluados:
+        for comp in componentes_evaluados:
+            reg = comp["region"]
+            x, y, bw, bh = reg["x"], reg["y"], reg["w"], reg["h"]
+            estado = comp.get("estado", "OK")
+            label = comp.get("label", comp.get("componente", ""))
+
+            if estado == "OK":
+                color = (0, 220, 90)   # Verde
+                thickness = 1
+                txt = f"{label}: OK"
+            else:
+                color = (30, 30, 230)  # Rojo
+                thickness = 2
+                txt = f"{label}: {estado}"
+
+            # Rectángulo delimitador
+            cv2.rectangle(overlay, (x, y), (x + bw, y + bh), color, thickness)
+
+            # Fondo y texto
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            f_scale = 0.38
+            (tw, th), _ = cv2.getTextSize(txt, font, f_scale, 1)
+            ty = max(y - 5, th + 4)
+            cv2.rectangle(overlay, (x, ty - th - 3), (x + tw + 6, ty + 2), (0, 0, 0), -1)
+            cv2.putText(overlay, txt, (x + 3, ty - 1), font, f_scale, color, 1, cv2.LINE_AA)
+
+    _, buf  = cv2.imencode(".jpg", overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
     return base64.b64encode(buf).decode("utf-8")
 
 
@@ -483,12 +689,7 @@ def comparar():
         mascara_p_fit = fit_cuadrado(mascara_p)
         mascara_c_fit = fit_cuadrado(mascara_c)
 
-        # Máscara combinada: unión (OR) en lugar de intersección (AND).
-        # El AND era demasiado restrictivo — si YOLO detecta el vehículo
-        # en posiciones ligeramente distintas en patrón y captura, la
-        # intersección puede ser <25% aunque ambas cubran bien el vehículo.
-        # La unión garantiza que evaluamos todo píxel donde al menos
-        # una de las dos imágenes tiene vehículo detectado.
+        # Máscara combinada: unión (OR)
         mascara_comb = cv2.bitwise_or(mascara_p_fit, mascara_c_fit)
 
         # 5. COMPONENTE A: Histograma HSV (invariante a perspectiva)
@@ -510,20 +711,27 @@ def comparar():
         sd = score_bordes(gray_patron, gray_alineada, mascara_comb)
 
         # 10. Score compuesto ponderado
-        # Histograma H+S: 45% — robusto a perspectiva e iluminación
-        # Matches SIFT:   30% — robusto a escala y rotación
-        # Bordes Canny:   15% — invariante a iluminación, tolera micro-desalineamiento
-        # SSIM interior:  10% — validación de estructura (peso bajo por sensibilidad)
         score_final = W_HIST * sa + W_MATCH * sb + W_BORDES * sd + W_SSIM * sc
 
+        # 11. Análisis detallado de puntos de interés específicos (ROIs)
+        hallazgos_especificos, comp_eval = analizar_componentes_especificos(
+            patron_fit, captura_fit, gray_patron, gray_alineada, mascara_comb, vista
+        )
+
+        hallazgos = detectar_hallazgos(mapa, mascara_comb, gray_patron, gray_alineada, hallazgos_especificos)
+        diff_b64  = diff_base64(gray_patron, gray_alineada, mapa, mascara_comb, comp_eval)
+
+        # Estado global ajustado por componentes críticos
         estado = (
             "NORMAL"      if score_final >= UMBRAL_NORMAL      else
             "ADVERTENCIA" if score_final >= UMBRAL_ADVERTENCIA else
             "CRITICO"
         )
-
-        hallazgos = detectar_hallazgos(mapa, mascara_comb, gray_patron, gray_alineada)
-        diff_b64  = diff_base64(gray_patron, gray_alineada, mapa, mascara_comb)
+        if any(h["tipo"] in ("AUSENTE", "DEFORMADO") for h in hallazgos):
+            estado = "CRITICO" if score_final < 0.75 else "ADVERTENCIA"
+        elif any(h["tipo"] in ("BORROSO", "DETERIORADO") for h in hallazgos):
+            if estado == "NORMAL":
+                estado = "ADVERTENCIA"
 
         cobertura = float(cv2.countNonZero(mascara_comb)) / mascara_comb.size
 
@@ -531,6 +739,7 @@ def comparar():
             "similitud":   round(score_final, 4),
             "estado":      estado,
             "hallazgos":   hallazgos,
+            "componentes": comp_eval,
             "imagen_diff": diff_b64,
             "debug": {
                 "score_histograma": round(sa, 4),

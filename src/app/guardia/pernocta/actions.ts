@@ -27,6 +27,16 @@ export async function registrarEscaneo(qrToken: string): Promise<ResultadoEscane
       return { ok: false, error: "No hay una sesión activa." };
     }
 
+    // 1.5. Validar horario permitido (de 17:00 a 22:59)
+    const ahora = new Date();
+    const horaActual = ahora.getHours();
+    if (horaActual >= 23 || horaActual < 17) {
+      return { 
+        ok: false, 
+        error: "Fuera de horario. Los escaneos solo están permitidos entre las 5:00 PM y las 11:00 PM." 
+      };
+    }
+
     const userAny = session.user as any;
     let guardiaId: number | null = null;
 

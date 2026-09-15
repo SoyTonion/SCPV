@@ -15,10 +15,21 @@ type VehiculoData = {
 
 type Vista = 'FRONTAL' | 'TRASERA' | 'LATERAL_IZQUIERDA' | 'LATERAL_DERECHA' | 'INTERIOR';
 
+type ComponenteEvaluado = {
+  componente: string;
+  label: string;
+  region: { x: number; y: number; w: number; h: number };
+  ssim: number;
+  nitidez: number;
+  estado: string;
+  confianza: number;
+};
+
 type ResultadoComparacion = {
   similitud:   number;
   estado:      'NORMAL' | 'ADVERTENCIA' | 'CRITICO';
   hallazgos:   { componente: string; tipo: string; confianza: number }[];
+  componentes?: ComponenteEvaluado[];
   imagen_diff: string;
   debug?: {
     alineacion_ok:       boolean;
@@ -244,24 +255,74 @@ function PantallaResultado({
           </div>
         )}
 
-        {/* Hallazgos */}
+        {/* Puntos de interés inspeccionados */}
+        {resultado.componentes && resultado.componentes.length > 0 && (
+          <div className="mb-5">
+            <p className="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">
+              Puntos de interés evaluados ({resultado.componentes.length})
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {resultado.componentes.map((c, i) => {
+                const esOk = c.estado === 'OK';
+                return (
+                  <div
+                    key={i}
+                    className={`flex items-center justify-between p-2.5 rounded-lg border text-xs ${
+                      esOk
+                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                        : 'bg-rose-50 border-rose-300 text-rose-900 font-semibold'
+                    }`}
+                  >
+                    <span className="truncate pr-1">{c.label}</span>
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        esOk
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-rose-600 text-white'
+                      }`}
+                    >
+                      {c.estado}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Hallazgos detallados */}
         {resultado.hallazgos.length > 0 && (
           <div className="mb-5">
             <p className="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">
-              Hallazgos detectados ({resultado.hallazgos.length})
+              Hallazgos y Anomalías ({resultado.hallazgos.length})
             </p>
             <div className="space-y-2">
-              {resultado.hallazgos.map((h, i) => (
-                <div key={i} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                  <div>
-                    <span className="text-xs font-bold text-slate-700">{h.componente}</span>
-                    <span className="text-[10px] text-slate-400 ml-2">{h.tipo}</span>
+              {resultado.hallazgos.map((h, i) => {
+                const badgeColor =
+                  h.tipo === 'AUSENTE'
+                    ? 'bg-rose-100 text-rose-700 border-rose-300'
+                    : h.tipo === 'BORROSO'
+                    ? 'bg-amber-100 text-amber-800 border-amber-300'
+                    : h.tipo === 'DEFORMADO'
+                    ? 'bg-purple-100 text-purple-700 border-purple-300'
+                    : h.tipo === 'DETERIORADO'
+                    ? 'bg-orange-100 text-orange-800 border-orange-300'
+                    : 'bg-sky-100 text-sky-800 border-sky-300';
+
+                return (
+                  <div key={i} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800">{h.componente}</span>
+                      <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded ml-2 ${badgeColor}`}>
+                        {h.tipo}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono font-bold text-slate-600">
+                      {Math.round(h.confianza * 100)}% conf.
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono font-bold text-slate-500">
-                    {Math.round(h.confianza * 100)}%
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

@@ -128,7 +128,7 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
         placas: v.placas ?? 'S/P',
         vehiculo: `${v.marcaVehiculo} ${v.submarcaVehiculo}`,
         departamento: v.departamento?.nombreDepartamento ?? 'Sin depto',
-        responsable: v.responsable,
+        responsable: v.responsable || 'SIN ASIGNAR',
       }
 
       const auth = mapaAutorizaciones.get(v.id)
