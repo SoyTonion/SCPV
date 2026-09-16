@@ -20,7 +20,7 @@ export default async function AusentesPage() {
       {/* Encabezado estático */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#145c2c]">Reporte de Pernocta Hoy</h1>
+          <h1 className="text-2xl font-bold text-[#145c2c]">Reporte de Pernocta</h1>
           <p className="text-slate-500 text-sm mt-1 capitalize">{resultado.data.fecha}</p>
         </div>
         <div className="flex items-center gap-3">

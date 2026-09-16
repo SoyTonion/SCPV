@@ -54,7 +54,7 @@ export default function PernoctaCharts({
         {/* Título */}
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">Control de Pernocta</h1>
-          <p className="text-slate-500 text-sm font-medium mt-1">Monitoreo nocturno del parque vehicular — escaneos, ausentes y autorizaciones.</p>
+          <p className="text-slate-500 text-sm font-medium mt-1">Monitoreo nocturno del parque vehicular, escaneos, ausentes y autorizaciones.</p>
         </div>
 
         {/* KPIs */}
