@@ -1,6 +1,7 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
+import { normalizarZona } from '@/lib/zonas'
 
 export type VehiculoReporte = {
   economico: string
@@ -91,9 +92,7 @@ export async function generarDatosReporte(fechaISO?: string): Promise<{ success:
       vehiculo: `${v.marcaVehiculo} ${v.submarcaVehiculo}`,
       responsable: v.responsable || 'SIN ASIGNAR',
       departamento: v.departamento?.nombreDepartamento ?? 'Sin depto',
-      zona: v.campoClasificacion && v.campoClasificacion !== '|'
-        ? v.campoClasificacion
-        : '—',
+      zona: normalizarZona(v.campoClasificacion),
     })
 
     const escaneados: VehiculoReporte[] = []

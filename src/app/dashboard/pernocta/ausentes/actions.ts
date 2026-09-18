@@ -2,6 +2,7 @@
 
 import { unstable_noStore as noStore } from 'next/cache'
 import { prisma } from '@/lib/prisma'
+import { normalizarZona } from '@/lib/zonas'
 
 export type VehiculoAusente = {
   id: string
@@ -127,7 +128,7 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
         economico: v.economico ?? 'S/N',
         placas: v.placas ?? 'S/P',
         vehiculo: `${v.marcaVehiculo} ${v.submarcaVehiculo}`,
-        zona: v.campoClasificacion && v.campoClasificacion !== '|' ? v.campoClasificacion : '—',
+        zona: normalizarZona(v.campoClasificacion),
         responsable: v.responsable || 'SIN ASIGNAR',
       }
 
