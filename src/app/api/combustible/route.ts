@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, EstadoAprobacionCombustible } from '@prisma/client';
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
@@ -11,14 +11,43 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    // 🆕 [NUEVO CFE] Recibimos también si es excepción y su justificación
-    const { vehiculoId, kilometraje, litros, importe, esExcepcion, justificacion } = body;
+    // 🆕 [NUEVO CFE] Recibimos también si es excepción y su justificación, y preautorizacionId si aplica
+    const { vehiculoId, kilometraje, litros, importe, esExcepcion, justificacion, preautorizacionId } = body;
 
     const rutaFalsaEvidencia = "/uploads/ticket_" + Date.now() + ".jpg";
     const kilometrajeNuevo = parseInt(kilometraje);
 
-    // Usamos una "Transacción" para ejecutar dos acciones obligatorias al mismo tiempo
-    const [nuevoRegistro, vehiculoActualizado] = await prisma.$transaction([
+    // 🆕 [NUEVO CFE] Validación Estricta de Preautorización
+    let estadoAprobacion: EstadoAprobacionCombustible = esExcepcion ? 'PENDIENTE_REVISION' : 'APROBADA';
+
+    if (preautorizacionId) {
+      const preauth = await prisma.preautorizacionCombustible.findUnique({
+        where: { id: preautorizacionId }
+      });
+
+      if (!preauth) {
+        return NextResponse.json({ error: 'La preautorización no existe.' }, { status: 400 });
+      }
+      
+      if (preauth.estado !== 'ACTIVA') {
+        return NextResponse.json({ error: 'La preautorización ya fue usada o está cancelada.' }, { status: 400 });
+      }
+
+      if (new Date() > new Date(preauth.horaFin)) {
+        return NextResponse.json({ error: 'El tiempo límite de la preautorización ha caducado.' }, { status: 400 });
+      }
+
+      const litrosSolicitados = parseFloat(litros);
+      const litrosAutorizados = parseFloat(preauth.litros.toString());
+
+      if (litrosSolicitados > litrosAutorizados) {
+         return NextResponse.json({ error: `La recarga supera el límite preautorizado de ${litrosAutorizados} L.` }, { status: 400 });
+      }
+
+      estadoAprobacion = 'APROBADA'; // Si pasa todas las validaciones, se auto-aprueba
+    }
+
+    const transactionActions = [
       // Acción 1: Guardamos el ticket de combustible en la bitácora
       prisma.registroCombustible.create({
         data: {
@@ -32,7 +61,8 @@ export async function POST(request: Request) {
           // 🆕 [NUEVO CFE] Guardamos los datos de la excepción
           esExcepcion: esExcepcion || false,
           justificacion: justificacion || null,
-          estadoAprobacion: esExcepcion ? 'PENDIENTE_REVISION' : 'APROBADA'
+          estadoAprobacion: estadoAprobacion,
+          preautorizacionId: preautorizacionId || null
         }
       }),
       // Acción 2: Le actualizamos el odómetro al vehículo para bloquear fraudes futuros
@@ -40,7 +70,20 @@ export async function POST(request: Request) {
         where: { id: vehiculoId },
         data: { kilometrajeActual: kilometrajeNuevo }
       })
-    ]);
+    ];
+
+    // Acción 3: Si se usó una preautorización, la marcamos como USADA
+    if (preautorizacionId) {
+      transactionActions.push(
+        prisma.preautorizacionCombustible.update({
+          where: { id: preautorizacionId },
+          data: { estado: 'USADA' }
+        }) as any
+      );
+    }
+
+    // Usamos una "Transacción" para ejecutar todas las acciones al mismo tiempo
+    const [nuevoRegistro] = await prisma.$transaction(transactionActions);
 
     const registroSerializado = {
       ...nuevoRegistro,

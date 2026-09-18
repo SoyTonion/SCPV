@@ -15,6 +15,7 @@ interface VehiculoData {
   litrosConsumidosMes: number;
   // 🆕 [NUEVO CFE] Para leer el historial
   historialReciente?: { id: string, litros: number, estado: string, fecha: string }[];
+  preautorizacionActiva?: { id: string, litros: number, horaFin: string } | null;
 }
 
 interface ErroresValidacion {
@@ -164,6 +165,11 @@ export default function CombustibleClient() {
       if (vehiculoData.capacidadTanque && numLitros > vehiculoData.capacidadTanque) {
         nuevosErrores.litros = `Error: Supera la capacidad del tanque (${vehiculoData.capacidadTanque} L).`;
       } 
+      else if (vehiculoData.preautorizacionActiva) {
+        if (numLitros > vehiculoData.preautorizacionActiva.litros) {
+          nuevosErrores.litros = `Límite de preautorización excedido. (Máximo: ${vehiculoData.preautorizacionActiva.litros} L).`;
+        }
+      }
       else if (vehiculoData.limiteMensualLitros) {
         const nuevoTotalMes = vehiculoData.litrosConsumidosMes + numLitros;
         if (nuevoTotalMes > vehiculoData.limiteMensualLitros) {
@@ -206,7 +212,13 @@ export default function CombustibleClient() {
   const handleLitrosChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setLitros(e.target.value);
     limpiarError('litros');
-    if (vehiculoData && vehiculoData.limiteMensualLitros) {
+    if (vehiculoData) {
+      if (vehiculoData.preautorizacionActiva) {
+        // Preautorizacion exime la justificacion
+        setRequiereJustificacion(false);
+        setJustificacion('');
+        limpiarError('justificacion');
+      } else if (vehiculoData.limiteMensualLitros) {
         const numLitros = Number(e.target.value);
         if (vehiculoData.litrosConsumidosMes + numLitros > vehiculoData.limiteMensualLitros) {
             setRequiereJustificacion(true);
@@ -215,6 +227,7 @@ export default function CombustibleClient() {
             setJustificacion('');
             limpiarError('justificacion');
         }
+      }
     }
   };
   
@@ -236,10 +249,13 @@ export default function CombustibleClient() {
           economico: datosVehiculo.economico || 'S/N',
           kilometrajeActual: datosVehiculo.kilometrajeActual || 0,
           capacidadTanque: datosVehiculo.capacidadTanque ? parseFloat(datosVehiculo.capacidadTanque) : null,
-          limiteMensualLitros: datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : null,
+          limiteMensualLitros: datosVehiculo.preautorizacionActiva ? 
+            ((datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : 0) + parseFloat(datosVehiculo.preautorizacionActiva.litros)) : 
+            (datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : null),
           litrosConsumidosMes: datosVehiculo.litrosConsumidosMes || 0,
-          // 🆕 [NUEVO CFE] Guardamos el historial
+          // 🆕 [NUEVO CFE] Guardamos el historial y preautorizacion
           historialReciente: datosVehiculo.historialReciente || [],
+          preautorizacionActiva: datosVehiculo.preautorizacionActiva || null,
         });
         setVehiculoId(datosVehiculo.id);
         limpiarError('vehiculo');
@@ -306,7 +322,8 @@ export default function CombustibleClient() {
         litros,
         importe,
         esExcepcion: requiereJustificacion,
-        justificacion: requiereJustificacion ? justificacion : null
+        justificacion: requiereJustificacion ? justificacion : null,
+        preautorizacionId: vehiculoData?.preautorizacionActiva?.id || null
       };
 
       const respuesta = await fetch('/api/combustible', {
@@ -607,12 +624,34 @@ export default function CombustibleClient() {
                       </button>
                     </div>
 
+                    {/* BANNER DE PREAUTORIZACIÓN */}
+                    {vehiculoData.preautorizacionActiva && (
+                      <div className="bg-[#007A33]/10 border border-[#007A33]/30 rounded-xl p-3 shadow-sm mt-3 animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-start gap-2.5">
+                          <div className="bg-[#007A33] text-white p-1.5 rounded-full shrink-0">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="text-[#007A33] font-bold text-xs uppercase tracking-wide">Preautorización Activa</h3>
+                            <p className="text-sm font-extrabold text-slate-800 leading-tight">
+                              Carga autorizada por {vehiculoData.preautorizacionActiva.litros} L
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+                              Válido hasta las {vehiculoData.preautorizacionActiva.horaFin} hrs
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* 🆕 [NUEVO CFE] DASHBOARD VISUAL DE LÍMITE MENSUAL */}
                     {progresoMensual && (
                       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
                         <div className="flex justify-between items-end mb-2">
-                          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-                            Consumo Mensual
+                          <span className={`text-[11px] font-bold ${vehiculoData.preautorizacionActiva ? 'text-[#007A33]' : 'text-slate-500'} uppercase tracking-wide`}>
+                            {vehiculoData.preautorizacionActiva ? 'Autorización Temporal' : 'Consumo Mensual'}
                           </span>
                           <span className="text-xs font-extrabold text-slate-800">
                             {progresoMensual.consumidos.toFixed(2)} <span className="text-slate-400 font-medium">/ {progresoMensual.limite} L</span>

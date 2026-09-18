@@ -45,18 +45,22 @@ export default function PeticionesView() {
   const [preEco, setPreEco] = useState('');
   const [preLitros, setPreLitros] = useState('');
   const [preMotivo, setPreMotivo] = useState('');
-  const [preHoraFin, setPreHoraFin] = useState('23:59');
+  const [preHoraFin, setPreHoraFin] = useState('');
 
   const [vehiculosDb, setVehiculosDb] = useState<{ id: string, economico: string | null, placas: string | null, marcaVehiculo: string }[]>([]);
 
   interface Preautorizacion {
     id: string;
-    economico: string;
     litros: number;
     motivo: string;
-    fecha: Date;
-    estado: 'ACTIVA' | 'USADA' | 'CADUCADA';
+    fecha: string;
+    estado: 'ACTIVA' | 'USADA' | 'CADUCADA' | 'CANCELADA';
     horaFin: string;
+    vehiculo: {
+      economico: string | null;
+      placas: string | null;
+      marcaVehiculo: string;
+    }
   }
   const [preautorizacionesActivas, setPreautorizacionesActivas] = useState<Preautorizacion[]>([]);
   const [toastExito, setToastExito] = useState<string | null>(null);
@@ -78,6 +82,19 @@ export default function PeticionesView() {
       }
     };
 
+    const cargarPreautorizaciones = async () => {
+      try {
+        const res = await fetch('/api/preautorizaciones');
+        if (res.ok) {
+          const data = await res.json();
+          // Transform dates for formatting if needed, but we can use them directly
+          setPreautorizacionesActivas(data);
+        }
+      } catch (error) {
+        console.error("Error al cargar preautorizaciones:", error);
+      }
+    };
+
     const cargarVehiculos = async () => {
       const res = await getVehiculosPernocta();
       if (res.success && res.data) {
@@ -86,6 +103,7 @@ export default function PeticionesView() {
     };
 
     cargarPeticiones();
+    cargarPreautorizaciones();
     cargarVehiculos();
   }, []);
 
@@ -155,33 +173,84 @@ export default function PeticionesView() {
     setBusquedaFecha('');
   };
 
-  // 🆕 Función simulada para emitir preautorización (luego la conectaremos a tu API)
-  const handleCrearPreautorizacion = (e: React.FormEvent) => {
+  const handleCrearPreautorizacion = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const nueva: Preautorizacion = {
-      id: Math.random().toString(36).substring(2, 9),
-      economico: preEco,
-      litros: Number(preLitros),
-      motivo: preMotivo,
-      fecha: new Date(),
-      estado: 'ACTIVA',
-      horaFin: preHoraFin
-    };
+    // Buscar el vehiculo seleccionado en vehiculosDb para obtener su ID real
+    const vehiculoSeleccionado = vehiculosDb.find(
+      v => (v.economico === preEco || v.placas === preEco)
+    );
 
-    setPreautorizacionesActivas([nueva, ...preautorizacionesActivas]);
+    if (!vehiculoSeleccionado) {
+      alert("Por favor selecciona un vehículo válido de la lista.");
+      return;
+    }
 
-    setPreEco('');
-    setPreLitros('');
-    setPreMotivo('');
-    setPreHoraFin('23:59');
+    try {
+      const payload = {
+        vehiculoId: vehiculoSeleccionado.id,
+        litros: Number(preLitros),
+        motivo: preMotivo,
+        horaFin: new Date(preHoraFin).toISOString(),
+        // creadoPor será llenado en el backend si no se envía o usará fallback
+      };
 
-    setToastExito('Preautorización emitida exitosamente.');
-    setTimeout(() => setToastExito(null), 3000);
+      const res = await fetch('/api/preautorizaciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const nueva = await res.json();
+        
+        // Agregar los datos del vehículo para que se vean en la lista sin recargar
+        const preAutorizacionUI = {
+          ...nueva,
+          vehiculo: {
+            economico: vehiculoSeleccionado.economico,
+            placas: vehiculoSeleccionado.placas,
+            marcaVehiculo: vehiculoSeleccionado.marcaVehiculo
+          }
+        };
+
+        setPreautorizacionesActivas([preAutorizacionUI, ...preautorizacionesActivas]);
+
+        setPreEco('');
+        setPreLitros('');
+        setPreMotivo('');
+        setPreHoraFin('');
+
+        setToastExito('Preautorización emitida exitosamente.');
+        setTimeout(() => setToastExito(null), 3000);
+      } else {
+        alert("Error al emitir preautorización.");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error de conexión al emitir la preautorización.");
+    }
   };
 
-  const cancelarPreautorizacion = (id: string) => {
-    setPreautorizacionesActivas(prev => prev.filter(p => p.id !== id));
+  const cancelarPreautorizacion = async (id: string) => {
+    try {
+      const res = await fetch(`/api/preautorizaciones/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'CANCELADA' })
+      });
+
+      if (res.ok) {
+        setPreautorizacionesActivas(prev => prev.filter(p => p.id !== id));
+        setToastExito('Permiso cancelado correctamente.');
+        setTimeout(() => setToastExito(null), 3000);
+      } else {
+        alert("Error al cancelar el permiso.");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error de conexión al cancelar.");
+    }
   };
 
   return (
@@ -310,10 +379,10 @@ export default function PeticionesView() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="block text-xs font-semibold text-slate-600 uppercase">Hora Cierre</label>
+                      <label className="block text-xs font-semibold text-slate-600 uppercase">Fecha y Hora Cierre</label>
                       <div className="relative">
                         <input
-                          type="time"
+                          type="datetime-local"
                           required
                           value={preHoraFin}
                           onChange={(e) => setPreHoraFin(e.target.value)}
@@ -335,12 +404,14 @@ export default function PeticionesView() {
                     />
                   </div>
 
-                  <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 flex gap-2 items-start">
-                    <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    <p className="text-xs text-amber-900 font-medium leading-tight">
-                      Caducará a las <span className="font-bold">{preHoraFin} hrs</span>.
-                    </p>
-                  </div>
+                  {preHoraFin && (
+                    <div className="bg-amber-50 p-3 rounded-lg border border-amber-200 flex gap-2 items-start">
+                      <svg className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <p className="text-xs text-amber-900 font-medium leading-tight">
+                        Caducará el <span className="font-bold">{new Date(preHoraFin).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })} hrs</span>.
+                      </p>
+                    </div>
+                  )}
 
                   <button
                     type="submit"
@@ -380,7 +451,7 @@ export default function PeticionesView() {
                         <div className="flex-1 space-y-2">
                           <div className="flex items-center gap-3">
                             <span className="bg-slate-800 text-white font-bold px-2.5 py-1 rounded-md text-xs tracking-wide shadow-sm">
-                              ECO {permiso.economico}
+                              ECO {permiso.vehiculo?.economico || 'N/A'} {permiso.vehiculo?.placas ? `| ${permiso.vehiculo.placas}` : ''}
                             </span>
                             <span className="flex items-center gap-1.5 text-[10px] font-bold bg-green-50 text-green-700 px-2 py-0.5 rounded-full border border-green-200">
                               <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -390,7 +461,9 @@ export default function PeticionesView() {
                           <h4 className="font-bold text-slate-800 text-base">{permiso.litros} Litros</h4>
                           <p className="text-sm text-slate-600 line-clamp-2">{permiso.motivo}</p>
                           <div className="text-xs text-slate-500 font-medium pt-1">
-                            Válido hasta: <span className="font-bold">{permiso.horaFin} hrs</span>
+                            Válido hasta: <span className="font-bold">
+                              {new Date(permiso.horaFin).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })} hrs
+                            </span>
                           </div>
                         </div>
 
@@ -649,8 +722,6 @@ export default function PeticionesView() {
                 onClick={() => {
                   cancelarPreautorizacion(confirmacionEliminarPre);
                   setConfirmacionEliminarPre(null);
-                  setToastExito('Permiso cancelado correctamente.');
-                  setTimeout(() => setToastExito(null), 3000);
                 }}
                 className="flex-1 py-2.5 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer bg-red-600 hover:bg-red-700"
               >

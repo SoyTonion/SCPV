@@ -29,6 +29,14 @@ export async function GET(
         registrosCombustible: {
           orderBy: { fechaCarga: 'desc' }, // Los ordenamos del más nuevo al más viejo
           take: 3, // Solo traemos los últimos 3 para no saturar el celular
+        },
+        preautorizaciones: {
+          where: {
+            estado: 'ACTIVA',
+            horaFin: { gte: new Date() } // Estricta validación de límite de tiempo
+          },
+          orderBy: { creadoEn: 'desc' },
+          take: 1
         }
       }
     });
@@ -50,20 +58,28 @@ export async function GET(
       _sum: {
         litrosCargados: true,
       },
-      where: {
-        vehiculoId: vehiculo.id,
-        fechaCarga: {
-          gte: fechaInicioMes, // Mayor o igual al día 1
+        where: {
+          vehiculoId: vehiculo.id,
+          fechaCarga: {
+            gte: fechaInicioMes, 
+          },
+          // 🆕 [NUEVO CFE] Sumamos APROBADA y PENDIENTE_REVISION, ya que ambas representan combustible físicamente consumido
+          estadoAprobacion: { in: ['APROBADA', 'PENDIENTE_REVISION'] }
         },
-        estadoAprobacion: 'APROBADA' // Solo sumamos las que pasaron bien
-      },
     });
 
     // Convertimos la suma a un número normal (si no hay cargas, es 0)
     const litrosConsumidosMes = cargasDelMes._sum.litrosCargados ? Number(cargasDelMes._sum.litrosCargados) : 0;
 
     // 6. Devolvemos el vehículo formateando los Decimales a Números Reales y BigInt a Texto
-    const { registrosCombustible, ...datosVehiculo } = vehiculo;
+    const { registrosCombustible, preautorizaciones, ...datosVehiculo } = vehiculo;
+
+    const preautorizacionActiva = preautorizaciones.length > 0 ? {
+      id: preautorizaciones[0].id,
+      litros: Number(preautorizaciones[0].litros),
+      horaFin: new Date(preautorizaciones[0].horaFin).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
+      // No incluimos el 'motivo' como solicitó el usuario, el operador solo ve que está preautorizado.
+    } : null;
 
     return NextResponse.json({
       ...datosVehiculo,
@@ -71,6 +87,7 @@ export async function GET(
       capacidadTanque: datosVehiculo.capacidadTanque ? Number(datosVehiculo.capacidadTanque) : null,
       limiteMensualLitros: datosVehiculo.limiteMensualLitros ? Number(datosVehiculo.limiteMensualLitros) : null,
       litrosConsumidosMes: litrosConsumidosMes,
+      preautorizacionActiva,
       // Empaquetamos el historial para que la pantalla del celular lo pueda leer fácil
       historialReciente: registrosCombustible.map(r => ({
         id: r.id.toString(),
