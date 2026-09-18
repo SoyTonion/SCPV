@@ -38,7 +38,7 @@ function TablaVehiculos({ vehiculos, tipo }: {
             <th className="px-4 py-3">Económico / Placas</th>
             <th className="px-4 py-3">Vehículo</th>
             <th className="px-4 py-3">Responsable</th>
-            <th className="px-4 py-3">Departamento</th>
+            <th className="px-4 py-3">Zona</th>
             {tipo === 'autorizado' && (
               <>
                 <th className="px-4 py-3">Motivo</th>
@@ -57,7 +57,7 @@ function TablaVehiculos({ vehiculos, tipo }: {
               </td>
               <td className="px-4 py-3 text-slate-600">{v.vehiculo}</td>
               <td className="px-4 py-3 text-slate-600 text-xs">{v.responsable}</td>
-              <td className="px-4 py-3 text-slate-500 text-xs">{v.departamento}</td>
+              <td className="px-4 py-3 text-slate-500 text-xs">{v.zona}</td>
               {tipo === 'autorizado' && (
                 <>
                   <td className="px-4 py-3 text-xs text-slate-600 max-w-[200px]">{v.motivoAutorizacion}</td>

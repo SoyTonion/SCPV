@@ -8,7 +8,7 @@ export type VehiculoAusente = {
   economico: string
   placas: string
   vehiculo: string
-  departamento: string
+  zona: string
   responsable: string
   // solo para autorizados
   motivoAutorizacion?: string
@@ -78,7 +78,7 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
         marcaVehiculo: true,
         submarcaVehiculo: true,
         responsable: true,
-        departamento: { select: { nombreDepartamento: true } },
+        campoClasificacion: true,
       },
     })
 
@@ -127,7 +127,7 @@ export async function getResumenPernocta(): Promise<{ success: true; data: Resum
         economico: v.economico ?? 'S/N',
         placas: v.placas ?? 'S/P',
         vehiculo: `${v.marcaVehiculo} ${v.submarcaVehiculo}`,
-        departamento: v.departamento?.nombreDepartamento ?? 'Sin depto',
+        zona: v.campoClasificacion && v.campoClasificacion !== '|' ? v.campoClasificacion : '—',
         responsable: v.responsable || 'SIN ASIGNAR',
       }
 
