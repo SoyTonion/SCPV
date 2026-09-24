@@ -316,20 +316,27 @@ export default function CombustibleClient() {
     setLoading(true);
 
     try {
-      const datos = {
-        vehiculoId,
-        kilometraje,
-        litros,
-        importe,
-        esExcepcion: requiereJustificacion,
-        justificacion: requiereJustificacion ? justificacion : null,
-        preautorizacionId: vehiculoData?.preautorizacionActiva?.id || null
-      };
+      const formData = new FormData();
+      formData.append('vehiculoId', vehiculoId);
+      formData.append('kilometraje', kilometraje);
+      formData.append('litros', litros);
+      formData.append('importe', importe);
+      formData.append('esExcepcion', String(requiereJustificacion));
+      
+      if (requiereJustificacion && justificacion) {
+        formData.append('justificacion', justificacion);
+      }
+      if (vehiculoData?.preautorizacionActiva?.id) {
+        formData.append('preautorizacionId', vehiculoData.preautorizacionActiva.id);
+      }
+      if (fotoTicket) {
+        formData.append('evidencia', fotoTicket);
+      }
 
       const respuesta = await fetch('/api/combustible', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(datos),
+        // No se establece 'Content-Type', el navegador se encarga del boundary para FormData
+        body: formData,
       });
 
       if (respuesta.ok) {

@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient, EstadoAprobacionCombustible } from '@prisma/client';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 const prisma = globalForPrisma.prisma || new PrismaClient();
@@ -10,14 +14,82 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 // ==========================================
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    // 🆕 [NUEVO CFE] Recibimos también si es excepción y su justificación, y preautorizacionId si aplica
-    const { vehiculoId, kilometraje, litros, importe, esExcepcion, justificacion, preautorizacionId } = body;
+    // 1. Validación de Sesión y Usuario
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'No autorizado. Por favor, inicia sesión.' }, { status: 401 });
+    }
+    const usuarioId = parseInt(session.user.id);
 
-    const rutaFalsaEvidencia = "/uploads/ticket_" + Date.now() + ".jpg";
+    // 2. Parseo de FormData
+    const formData = await request.formData();
+    const vehiculoId = formData.get('vehiculoId') as string;
+    const kilometraje = formData.get('kilometraje') as string;
+    const litros = formData.get('litros') as string;
+    const importe = formData.get('importe') as string;
+    const esExcepcionStr = formData.get('esExcepcion') as string;
+    const esExcepcion = esExcepcionStr === 'true';
+    const justificacion = formData.get('justificacion') as string | null;
+    const preautorizacionId = formData.get('preautorizacionId') as string | null;
+    
+    // Evidencia puede venir como archivo File o texto base64, o nada
+    const evidenciaFile = formData.get('evidencia') as File | null;
+    const evidenciaBase64 = formData.get('evidenciaBase64') as string | null;
+
+    // 3. Validación de Entrada (Input Validation)
+    if (!vehiculoId || !kilometraje || !litros || !importe) {
+      return NextResponse.json({ error: 'Faltan datos obligatorios (vehiculoId, kilometraje, litros, importe).' }, { status: 400 });
+    }
+
     const kilometrajeNuevo = parseInt(kilometraje);
+    const litrosSolicitados = parseFloat(litros);
+    const costoTotal = parseFloat(importe);
 
-    // 🆕 [NUEVO CFE] Validación Estricta de Preautorización
+    if (isNaN(kilometrajeNuevo) || isNaN(litrosSolicitados) || isNaN(costoTotal)) {
+      return NextResponse.json({ error: 'Formatos de número inválidos.' }, { status: 400 });
+    }
+
+    // 4. Validación de Lógica de Negocio (Vehículo)
+    const vehiculo = await prisma.vehiculo.findUnique({
+      where: { id: vehiculoId }
+    });
+
+    if (!vehiculo) {
+      return NextResponse.json({ error: 'El vehículo especificado no existe en el sistema.' }, { status: 404 });
+    }
+
+    if (kilometrajeNuevo <= vehiculo.kilometrajeActual) {
+      return NextResponse.json({ error: `Fraude o error detectado: El kilometraje ingresado (${kilometrajeNuevo}) no puede ser menor o igual al actual (${vehiculo.kilometrajeActual}).` }, { status: 400 });
+    }
+
+    // 5. Manejo de Evidencia Real (Guardado de Archivo)
+    let rutaEvidenciaFinal = "/uploads/ticket_placeholder.jpg"; // Fallback por si no envían nada (pruebas)
+    const uploadDir = join(process.cwd(), 'public', 'uploads', 'tickets');
+    
+    try {
+      await mkdir(uploadDir, { recursive: true }); // Crear carpeta si no existe
+    } catch (e) {
+      // Ignorar error si ya existe la carpeta
+    }
+
+    if (evidenciaFile && evidenciaFile.size > 0) {
+      const bytes = await evidenciaFile.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const fileName = `ticket_${Date.now()}_${evidenciaFile.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+      const filePath = join(uploadDir, fileName);
+      await writeFile(filePath, buffer);
+      rutaEvidenciaFinal = `/uploads/tickets/${fileName}`;
+    } else if (evidenciaBase64) {
+      // Si la app móvil lo manda en base64
+      const base64Data = evidenciaBase64.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, 'base64');
+      const fileName = `ticket_${Date.now()}.jpg`;
+      const filePath = join(uploadDir, fileName);
+      await writeFile(filePath, buffer);
+      rutaEvidenciaFinal = `/uploads/tickets/${fileName}`;
+    }
+
+    // 6. Validación Estricta de Preautorización
     let estadoAprobacion: EstadoAprobacionCombustible = esExcepcion ? 'PENDIENTE_REVISION' : 'APROBADA';
 
     if (preautorizacionId) {
@@ -37,42 +109,37 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'El tiempo límite de la preautorización ha caducado.' }, { status: 400 });
       }
 
-      const litrosSolicitados = parseFloat(litros);
       const litrosAutorizados = parseFloat(preauth.litros.toString());
 
       if (litrosSolicitados > litrosAutorizados) {
          return NextResponse.json({ error: `La recarga supera el límite preautorizado de ${litrosAutorizados} L.` }, { status: 400 });
       }
 
-      estadoAprobacion = 'APROBADA'; // Si pasa todas las validaciones, se auto-aprueba
+      estadoAprobacion = 'APROBADA'; 
     }
 
+    // 7. Transacción a Base de Datos
     const transactionActions = [
-      // Acción 1: Guardamos el ticket de combustible en la bitácora
       prisma.registroCombustible.create({
         data: {
           vehiculoId: vehiculoId,
-          usuarioId: 1, 
+          usuarioId: usuarioId, // Ahora es el usuario real
           kilometraje: kilometrajeNuevo,
-          litrosCargados: parseFloat(litros),
-          costoTotal: parseFloat(importe),
-          rutaEvidencia: rutaFalsaEvidencia,
-          
-          // 🆕 [NUEVO CFE] Guardamos los datos de la excepción
-          esExcepcion: esExcepcion || false,
+          litrosCargados: litrosSolicitados,
+          costoTotal: costoTotal,
+          rutaEvidencia: rutaEvidenciaFinal,
+          esExcepcion: esExcepcion,
           justificacion: justificacion || null,
           estadoAprobacion: estadoAprobacion,
           preautorizacionId: preautorizacionId || null
         }
       }),
-      // Acción 2: Le actualizamos el odómetro al vehículo para bloquear fraudes futuros
       prisma.vehiculo.update({
         where: { id: vehiculoId },
         data: { kilometrajeActual: kilometrajeNuevo }
       })
     ];
 
-    // Acción 3: Si se usó una preautorización, la marcamos como USADA
     if (preautorizacionId) {
       transactionActions.push(
         prisma.preautorizacionCombustible.update({
@@ -82,7 +149,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // Usamos una "Transacción" para ejecutar todas las acciones al mismo tiempo
     const [nuevoRegistro] = await prisma.$transaction(transactionActions);
 
     const registroSerializado = {
@@ -104,19 +170,35 @@ export async function POST(request: Request) {
 // ==========================================
 // 2. GET: Envía los datos reales al Dashboard
 // ==========================================
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // Ordenamos por 'fechaCarga' como está definido en tu schema.prisma
+    const session = await getServerSession(authOptions);
+    if (!session) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    // Agregamos paginación defensiva para no tumbar la base de datos
+    const { searchParams } = new URL(request.url);
+    const limit = searchParams.get('limit');
+    const take = limit ? parseInt(limit) : 100; // Traer máximo 100 por defecto
+
     const registros = await prisma.registroCombustible.findMany({
       orderBy: { fechaCarga: 'desc' },
-      include: { vehiculo: true },
+      take: take,
+      include: { 
+        vehiculo: true,
+        usuario: true // Traemos el usuario real que hizo la carga
+      },
     });
 
-    // Serializamos BigInts y fechas
     const serializados = registros.map(r => ({
       ...r,
       id: r.id.toString(),
       fechaCarga: r.fechaCarga ? new Date(r.fechaCarga).toISOString() : null,
+      usuario: r.usuario ? {
+        id: r.usuario.id,
+        nombre: r.usuario.nombre,
+      } : null
     }));
 
     return NextResponse.json(serializados);
@@ -131,6 +213,13 @@ export async function GET() {
 // ==========================================
 export async function PATCH(request: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+    
+    // Aquí podrías agregar validación extra: if (session.user.rolName !== 'Administrador') return 403
+
     const body = await request.json();
     const { id, estadoAprobacion } = body;
 
@@ -138,14 +227,18 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Faltan datos obligatorios.' }, { status: 400 });
     }
 
-    // Actualizamos el estado en la base de datos
-    // Nota: Como tus IDs usan BigInt, lo convertimos usando BigInt(id)
+    let bigIntId;
+    try {
+      bigIntId = BigInt(id);
+    } catch (e) {
+      return NextResponse.json({ error: 'Formato de ID inválido.' }, { status: 400 });
+    }
+
     const registroActualizado = await prisma.registroCombustible.update({
-      where: { id: BigInt(id) }, 
+      where: { id: bigIntId }, 
       data: { estadoAprobacion: estadoAprobacion }
     });
 
-    // Serializamos el BigInt de regreso a String para que React lo entienda
     const registroSerializado = {
       ...registroActualizado,
       id: registroActualizado.id.toString(),
