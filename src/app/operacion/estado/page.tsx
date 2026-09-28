@@ -28,7 +28,7 @@ type ComponenteEvaluado = {
 type ResultadoComparacion = {
   similitud:   number;
   estado:      'NORMAL' | 'ADVERTENCIA' | 'CRITICO';
-  hallazgos:   { componente: string; tipo: string; confianza: number }[];
+  hallazgos:   { componente: string; tipo: string; confianza: number; esManual?: boolean; descripcion?: string }[];
   componentes?: ComponenteEvaluado[];
   imagen_diff: string;
   debug?: {
@@ -151,7 +151,7 @@ function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
   );
 }
 
-// ── PANTALLA DE RESULTADO ────────────────────────────────────────────────────
+// ── PANTALLA DE RESULTADO (Validación Human-in-the-Loop) ─────────────────────
 function PantallaResultado({
   resultado, vista, vehiculo, onNuevaCaptura, onSiguiente,
 }: {
@@ -163,6 +163,59 @@ function PantallaResultado({
 }) {
   const pct   = Math.round(resultado.similitud * 100);
   const label = vistas.find(v => v.vista === vista)?.label ?? vista;
+
+  // Estado local para la validación humana
+  const [hallazgos, setHallazgos] = useState(resultado.hallazgos.map(h => ({ ...h, esManual: false })));
+  const [observaciones, setObservaciones] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  
+  // Estado para el mini-formulario
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [nComponente, setNComponente] = useState('PUERTA');
+  const [nTipo, setNTipo] = useState('DETERIORADO');
+
+  const componentesEnum = ['LOGO_FRONTAL', 'LOGO_TRASERO', 'CALCOMANIA', 'NUMERO_ECONOMICO', 'FARO_IZQUIERDO', 'FARO_DERECHO', 'ESPEJO_IZQUIERDO', 'ESPEJO_DERECHO', 'DEFENSA', 'PUERTA', 'OTRO'];
+  const tiposEnum = ['AUSENTE', 'BORROSO', 'DETERIORADO', 'DEFORMADO', 'DIFERENCIA_VISUAL', 'BAJA_SIMILITUD', 'OTRO'];
+
+  const eliminarHallazgo = (index: number) => {
+    setHallazgos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const agregarHallazgo = () => {
+    setHallazgos(prev => [...prev, { componente: nComponente, tipo: nTipo, confianza: 1, esManual: true }]);
+    setMostrarForm(false);
+  };
+
+  const guardarYValidar = async () => {
+    setGuardando(true);
+    try {
+      const estadoFinal = hallazgos.length === 0 ? 'NORMAL' : resultado.estado === 'NORMAL' ? 'ADVERTENCIA' : resultado.estado;
+
+      const payload = {
+        vehiculoId: vehiculo.id,
+        estadoGeneral: estadoFinal,
+        observaciones: observaciones,
+        fotografias: [ { vista: vista, rutaImagen: 'ruta/procesada.jpg' } ], // En prod vendría del S3/Local
+        hallazgos: hallazgos
+      };
+
+      const res = await fetch('/api/inspecciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error('Fallo al guardar');
+      
+      alert('Inspección guardada y validada correctamente por el operador.');
+      onSiguiente();
+    } catch (err) {
+      console.error(err);
+      alert('Error al intentar guardar la validación.');
+    } finally {
+      setGuardando(false);
+    }
+  };
 
   const colorEstado = {
     NORMAL:      { bg: 'bg-green-50',  border: 'border-green-200',  text: 'text-green-700',  badge: 'bg-green-100 text-green-800'  },
@@ -176,170 +229,93 @@ function PantallaResultado({
         <div className="absolute top-0 left-0 w-full h-1.5 bg-[#007A33]" />
 
         <h1 className="text-xl font-extrabold text-slate-800 mb-1 text-center tracking-tight mt-2">
-          Resultado — {label}
+          Validación de Hallazgos — {label}
         </h1>
         <p className="text-xs text-slate-500 mb-5 text-center font-medium">
           {vehiculo.marcaVehiculo} {vehiculo.submarcaVehiculo} · {vehiculo.placas ?? 'S/P'}
         </p>
 
-        {/* Estado + similitud */}
-        <div className={`rounded-xl p-4 mb-5 border ${colorEstado.bg} ${colorEstado.border}`}>
-          <div className="flex items-center justify-between mb-2">
-            <span className={`text-sm font-extrabold ${colorEstado.text}`}>{resultado.estado}</span>
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${colorEstado.badge}`}>
-              {pct}% similitud
-            </span>
-          </div>
-          {/* Barra de progreso */}
-          <div className="w-full bg-white/70 rounded-full h-2.5 border border-slate-200">
-            <div
-              className={`h-2.5 rounded-full transition-all ${
-                resultado.estado === 'NORMAL' ? 'bg-green-500' :
-                resultado.estado === 'ADVERTENCIA' ? 'bg-amber-400' : 'bg-red-500'
-              }`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+        {/* Estado original sugerido por la IA */}
+        <div className={`rounded-xl p-3 mb-5 border ${colorEstado.bg} ${colorEstado.border} flex justify-between items-center`}>
+          <span className={`text-xs font-bold uppercase ${colorEstado.text}`}>
+            Sugerencia IA: {resultado.estado}
+          </span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${colorEstado.badge}`}>
+            {pct}% similitud
+          </span>
         </div>
-
-        {/* Debug info — visible para ajustar umbrales en pruebas */}
-        {resultado.debug && (
-          <div className="mb-5 bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Debug de comparación</p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-mono text-slate-600">
-              {resultado.debug.score_histograma !== undefined && (<>
-                <span className="text-slate-400">Histograma HSV</span>
-                <span>{Math.round(resultado.debug.score_histograma * 100)}%</span>
-              </>)}
-              {resultado.debug.score_matches !== undefined && (<>
-                <span className="text-slate-400">Matches SIFT</span>
-                <span>{Math.round(resultado.debug.score_matches * 100)}%</span>
-              </>)}
-              {resultado.debug.score_bordes !== undefined && (<>
-                <span className="text-slate-400">Bordes Canny</span>
-                <span>{Math.round(resultado.debug.score_bordes * 100)}%</span>
-              </>)}
-              {resultado.debug.score_ssim !== undefined && (<>
-                <span className="text-slate-400">SSIM interior</span>
-                <span>{Math.round(resultado.debug.score_ssim * 100)}%</span>
-              </>)}
-              <span className="col-span-2 border-t border-slate-200 my-1" />
-              <span>Alineación</span>
-              <span className={resultado.debug.alineacion_ok ? 'text-green-600 font-bold' : 'text-red-500 font-bold'}>
-                {resultado.debug.alineacion_ok ? '✓ OK' : `✗ ${resultado.debug.motivo}`}
-              </span>
-              <span>Matches / Inliers</span>
-              <span>{resultado.debug.matches_orb} / {resultado.debug.inliers}</span>
-              <span>Error reproyección</span>
-              <span>{resultado.debug.reproj_error_px >= 0 ? `${resultado.debug.reproj_error_px} px` : '—'}</span>
-              {resultado.debug.cobertura_mascara !== undefined && (<>
-                <span>Cobertura máscara</span>
-                <span className={resultado.debug.cobertura_mascara < 0.15 ? 'text-red-500 font-bold' : ''}>
-                  {Math.round(resultado.debug.cobertura_mascara * 100)}%
-                </span>
-              </>)}
-            </div>
-          </div>
-        )}
 
         {/* Imagen de diferencias */}
         {resultado.imagen_diff && (
           <div className="mb-5">
-            <p className="text-xs font-bold text-slate-600 mb-1.5 uppercase tracking-wide">Mapa de diferencias</p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`data:image/jpeg;base64,${resultado.imagen_diff}`}
-              alt="Mapa de diferencias"
-              className="w-full rounded-xl border border-slate-200 shadow-sm"
-            />
+            <img src={`data:image/jpeg;base64,\${resultado.imagen_diff}`} alt="Mapa de diferencias" className="w-full rounded-xl border border-slate-200 shadow-sm" />
           </div>
         )}
 
-        {/* Puntos de interés inspeccionados */}
-        {resultado.componentes && resultado.componentes.length > 0 && (
-          <div className="mb-5">
-            <p className="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">
-              Puntos de interés evaluados ({resultado.componentes.length})
+        {/* Lista editable de hallazgos */}
+        <div className="mb-5">
+          <div className="flex justify-between items-center mb-2">
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+              Hallazgos a validar ({hallazgos.length})
             </p>
-            <div className="grid grid-cols-2 gap-2">
-              {resultado.componentes.map((c, i) => {
-                const esOk = c.estado === 'OK';
-                return (
-                  <div
-                    key={i}
-                    className={`flex items-center justify-between p-2.5 rounded-lg border text-xs ${
-                      esOk
-                        ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
-                        : 'bg-rose-50 border-rose-300 text-rose-900 font-semibold'
-                    }`}
-                  >
-                    <span className="truncate pr-1">{c.label}</span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                        esOk
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-rose-600 text-white'
-                      }`}
-                    >
-                      {c.estado}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <button onClick={() => setMostrarForm(!mostrarForm)} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1 rounded">
+              + Añadir manual
+            </button>
           </div>
-        )}
 
-        {/* Hallazgos detallados */}
-        {resultado.hallazgos.length > 0 && (
-          <div className="mb-5">
-            <p className="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">
-              Hallazgos y Anomalías ({resultado.hallazgos.length})
-            </p>
-            <div className="space-y-2">
-              {resultado.hallazgos.map((h, i) => {
-                const badgeColor =
-                  h.tipo === 'AUSENTE'
-                    ? 'bg-rose-100 text-rose-700 border-rose-300'
-                    : h.tipo === 'BORROSO'
-                    ? 'bg-amber-100 text-amber-800 border-amber-300'
-                    : h.tipo === 'DEFORMADO'
-                    ? 'bg-purple-100 text-purple-700 border-purple-300'
-                    : h.tipo === 'DETERIORADO'
-                    ? 'bg-orange-100 text-orange-800 border-orange-300'
-                    : 'bg-sky-100 text-sky-800 border-sky-300';
-
-                return (
-                  <div key={i} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
-                    <div>
-                      <span className="text-xs font-bold text-slate-800">{h.componente}</span>
-                      <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded ml-2 ${badgeColor}`}>
-                        {h.tipo}
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-mono font-bold text-slate-600">
-                      {Math.round(h.confianza * 100)}% conf.
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+          <div className="space-y-2">
+            {hallazgos.map((h, i) => (
+              <div key={i} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                <div>
+                  <span className="text-xs font-bold text-slate-800">{h.componente}</span>
+                  <span className="text-[10px] font-bold border px-1.5 py-0.5 rounded ml-2 bg-amber-100 text-amber-800 border-amber-300">
+                    {h.tipo}
+                  </span>
+                  {h.esManual && <span className="ml-2 text-[9px] text-blue-600 font-bold uppercase">(Manual)</span>}
+                </div>
+                <button onClick={() => eliminarHallazgo(i)} className="text-red-400 hover:text-red-600 p-1 rounded-full transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+              </div>
+            ))}
+            {hallazgos.length === 0 && (
+              <p className="text-xs text-slate-400 italic text-center py-2">Ningún daño registrado.</p>
+            )}
           </div>
-        )}
+
+          {/* Formulario Inline para añadir hallazgo */}
+          {mostrarForm && (
+            <div className="mt-3 p-3 border border-blue-200 bg-blue-50 rounded-lg flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
+              <select value={nComponente} onChange={e => setNComponente(e.target.value)} className="text-xs p-1.5 rounded border border-slate-300 bg-white">
+                {componentesEnum.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={nTipo} onChange={e => setNTipo(e.target.value)} className="text-xs p-1.5 rounded border border-slate-300 bg-white">
+                {tiposEnum.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button onClick={agregarHallazgo} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1.5 rounded transition-colors">
+                Confirmar hallazgo
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="mb-5">
+          <p className="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Observaciones</p>
+          <textarea 
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            placeholder="Nota del operador (opcional)..." 
+            className="w-full text-sm p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-[#007A33] focus:outline-none h-20 resize-none"
+          />
+        </div>
 
         {/* Acciones */}
         <div className="flex gap-3">
-          <button
-            onClick={onNuevaCaptura}
-            className="flex-1 border-2 border-slate-200 hover:border-[#007A33] text-slate-600 hover:text-[#007A33] font-bold rounded-xl py-3 text-sm transition-colors"
-          >
-            Volver a capturar
+          <button onClick={onNuevaCaptura} disabled={guardando} className="flex-1 border-2 border-slate-200 hover:border-[#007A33] text-slate-600 hover:text-[#007A33] font-bold rounded-xl py-3 text-sm transition-colors">
+            Re-capturar
           </button>
-          <button
-            onClick={onSiguiente}
-            className="flex-1 bg-[#007A33] hover:bg-[#005c26] text-white font-bold rounded-xl py-3 text-sm transition-colors shadow-md"
-          >
-            Siguiente ángulo
+          <button onClick={guardarYValidar} disabled={guardando} className="flex-1 bg-[#007A33] hover:bg-[#005c26] disabled:bg-slate-400 text-white font-bold rounded-xl py-3 text-sm transition-colors shadow-md">
+            {guardando ? 'Guardando...' : 'Validar y Guardar'}
           </button>
         </div>
       </div>

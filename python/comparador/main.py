@@ -543,6 +543,7 @@ def analizar_componentes_especificos(patron_bgr: np.ndarray, captura_bgr: np.nda
                 "confianza": confianza,
                 "region": {"x": x, "y": y, "w": bw, "h": bh},
                 "similitud": round(ssim_local, 3),
+                "esManual": False
             })
 
     return hallazgos, componentes_evaluados
@@ -596,6 +597,7 @@ def detectar_hallazgos(mapa: np.ndarray, mascara: np.ndarray,
             "tipo":       "DIFERENCIA_VISUAL",
             "confianza":  round(min(1.0, area / (h * w) * 10), 3),
             "region":     {"x": int(x), "y": int(y), "w": int(bw), "h": int(bh)},
+            "esManual":   False
         })
     return out
 

@@ -1,13 +1,10 @@
 import { NextResponse } from 'next/server';
-import { PrismaClient, EstadoAprobacionCombustible } from '@prisma/client';
+import { EstadoAprobacionCombustible } from '@prisma/client';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
-
-const globalForPrisma = global as unknown as { prisma: PrismaClient };
-const prisma = globalForPrisma.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+import { prisma } from '@/lib/prisma';
 
 // ==========================================
 // 1. POST: Recibe y guarda datos del celular

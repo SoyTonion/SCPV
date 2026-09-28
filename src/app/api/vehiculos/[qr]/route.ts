@@ -89,9 +89,9 @@ export async function GET(
       litrosConsumidosMes: litrosConsumidosMes,
       preautorizacionActiva,
       // Empaquetamos el historial para que la pantalla del celular lo pueda leer fácil
-      historialReciente: registrosCombustible.map(r => ({
+      historialReciente: registrosCombustible.map((r: { id: bigint; litrosCargados: { toNumber?: () => number } | number | null; estadoAprobacion: string; fechaCarga: Date | null }) => ({
         id: r.id.toString(),
-        litros: Number(r.litrosCargados),
+        litros: r.litrosCargados ? Number(r.litrosCargados) : 0,
         estado: r.estadoAprobacion,
         fecha: r.fechaCarga ? new Date(r.fechaCarga).toLocaleDateString('es-MX') : 'S/F'
       }))

@@ -112,6 +112,7 @@ enum TipoHallazgo {
   DEFORMADO
   DIFERENCIA_VISUAL
   BAJA_SIMILITUD
+  OTRO
 }
 
 // -- Control de autorizaciones de emergencia para combustible --
@@ -335,7 +336,9 @@ model InspeccionFisica {
   estadoGeneral EstadoInspeccion @default(NORMAL) @map("estado_general")
   puntaje       Decimal?         @db.Decimal(5, 2)
   observaciones String?          @db.Text
+  resumenIa     String?          @db.Text @map("resumen_ia")
   procesada     Boolean          @default(false)
+  validada      Boolean          @default(false)
 
   vehiculo  Vehiculo @relation(fields: [vehiculoId], references: [id])
   inspector Usuario  @relation(fields: [inspectorId], references: [id])
@@ -365,10 +368,11 @@ model HallazgoInspeccion {
   inspeccionId BigInt             @map("inspeccion_id")
   componente   ComponenteVehiculo
   tipo         TipoHallazgo
-  confianza    Decimal            @db.Decimal(5, 2)
+  confianza    Decimal?           @db.Decimal(5, 2)
   similitud    Decimal?           @db.Decimal(5, 2)
   rutaRecorte  String?            @map("ruta_recorte") @db.VarChar(255)
   descripcion  String?            @db.Text
+  esManual     Boolean            @default(false) @map("es_manual")
   creadoEn     DateTime           @default(now()) @map("creado_en")
 
   inspeccion InspeccionFisica @relation(fields: [inspeccionId], references: [id], onDelete: Cascade)
