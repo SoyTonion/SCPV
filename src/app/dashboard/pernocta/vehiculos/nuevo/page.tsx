@@ -85,14 +85,14 @@ export default function TablaVehiculosPernocta() {
             disabled={actualizandoTodos}
             className="px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-800 hover:bg-emerald-200 disabled:opacity-50 transition-colors"
           >
-            ✓ Todos Permitido
+            ✓ Todos a Obligatorio
           </button>
           <button
             onClick={() => handleTodos(false)}
             disabled={actualizandoTodos}
             className="px-3 py-2 rounded-lg text-xs font-semibold bg-rose-100 text-rose-800 hover:bg-rose-200 disabled:opacity-50 transition-colors"
           >
-            ✕ Todos No Permitido
+            ✕ Todos a Exento
           </button>
           <span className="text-xs font-medium text-slate-500">
             {vehiculos.length} vehículos
@@ -109,7 +109,7 @@ export default function TablaVehiculosPernocta() {
               <th className="p-4">Vehículo</th>
               <th className="p-4">Responsable / Depto</th>
               <th className="p-4">Zona</th>
-              <th className="p-4 text-center">¿Pernocta?</th>
+              <th className="p-4 text-center">Pernocta</th>
               <th className="p-4 text-right">Acciones</th>
             </tr>
           </thead>
@@ -180,7 +180,7 @@ export default function TablaVehiculosPernocta() {
                           v.vehiculoPernocta ? 'bg-emerald-600' : 'bg-rose-600'
                         }`}
                       />
-                      {v.vehiculoPernocta ? 'Permitido' : 'No Permitido'}
+                      {v.vehiculoPernocta ? 'Sí' : 'No'}
                     </button>
                   </td>
 
