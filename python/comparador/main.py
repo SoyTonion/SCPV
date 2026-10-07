@@ -36,6 +36,8 @@ NEXTJS_PUBLIC = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "public")
 )
 
+# Resolución estándar unificada para toma, guardado y slider de comparación (4:3)
+STD_W, STD_H = 1280, 960
 TARGET_W, TARGET_H = 640, 640
 
 # ── Pesos del score compuesto ─────────────────────────────────────────────────
@@ -394,108 +396,256 @@ def score_bordes(patron_g: np.ndarray, alineada_g: np.ndarray,
 # ── Hallazgos ─────────────────────────────────────────────────────────────────
 
 # ── ROIs de componentes por vista ─────────────────────────────────────────────
-# Coordenadas relativas (rx, ry, rw, rh) respecto al bounding box del vehículo.
-# Si el vehículo ocupa casi todo el frame o la máscara es parcial, se aplican sobre 640x640.
+# Coordenadas relativas (rx, ry, rw, rh) sobre el frame 640×640 completo.
+# Calibradas con las fotos del vehículo 8000119543 — mejor encuadre de referencia.
 ROIS_POR_VISTA = {
+    # ── FRONTAL ───────────────────────────────────────────────────────────────
+    # Referencia 8000119543: vehículo ocupa y≈0.10–0.92, muy ajustado al encuadre.
+    # Faros naranjas visibles a ambos lados de la parrilla negra.
+    # Parabrisas acristalado: y≈0.10–0.32.
+    # Defensa negra baja: y≈0.73–0.90. Placa centrada dentro de ella.
     "FRONTAL": [
-        {"componente": "LOGO_FRONTAL",   "rx": 0.36, "ry": 0.40, "rw": 0.28, "rh": 0.18, "label": "Logo Frontal"},
-        {"componente": "FARO_IZQUIERDO", "rx": 0.05, "ry": 0.38, "rw": 0.24, "rh": 0.20, "label": "Faro Izq"},
-        {"componente": "FARO_DERECHO",   "rx": 0.71, "ry": 0.38, "rw": 0.24, "rh": 0.20, "label": "Faro Der"},
-        {"componente": "DEFENSA",        "rx": 0.06, "ry": 0.65, "rw": 0.88, "rh": 0.30, "label": "Defensa"},
-        {"componente": "CALCOMANIA",     "rx": 0.36, "ry": 0.70, "rw": 0.28, "rh": 0.20, "label": "Placa / Calcomania"},
+        {
+            # Faro derecho del vehículo = lado izquierdo en foto
+            "componente": "FARO_DERECHO",
+            "rx": 0.03, "ry": 0.45, "rw": 0.20, "rh": 0.18,
+            "label": "Faro Der.",
+        },
+        {
+            # Faro izquierdo del vehículo = lado derecho en foto
+            "componente": "FARO_IZQUIERDO",
+            "rx": 0.77, "ry": 0.45, "rw": 0.20, "rh": 0.18,
+            "label": "Faro Izq.",
+        },
+        {
+            # Parabrisas: zona acristalada superior de la cabina
+            "componente": "PUERTA",
+            "rx": 0.10, "ry": 0.10, "rw": 0.80, "rh": 0.22,
+            "label": "Parabrisas",
+        },
+        {
+            # Defensa delantera negra completa
+            "componente": "DEFENSA",
+            "rx": 0.03, "ry": 0.73, "rw": 0.94, "rh": 0.16,
+            "label": "Defensa Delantera",
+        },
+        {
+            # Placa frontal centrada en la defensa
+            "componente": "CALCOMANIA",
+            "rx": 0.33, "ry": 0.74, "rw": 0.34, "rh": 0.12,
+            "label": "Placa Frontal",
+        },
     ],
+
+    # ── TRASERA ───────────────────────────────────────────────────────────────
+    # Referencia 8000119543: vehículo llena casi todo el encuadre.
+    # Calaveras rojas rectangulares bien definidas a ambos lados.
+    # CFE + número económico: esquina superior derecha de la caja, y≈0.33–0.47.
+    # Mensaje 071: franja de texto en y≈0.68–0.76.
+    # Placa: centrada en y≈0.76–0.87.
+    # Defensa trasera negra: y≈0.85–0.96.
     "TRASERA": [
-        {"componente": "LOGO_TRASERO",   "rx": 0.38, "ry": 0.35, "rw": 0.24, "rh": 0.18, "label": "Logo Trasero"},
-        {"componente": "FARO_IZQUIERDO", "rx": 0.05, "ry": 0.36, "rw": 0.22, "rh": 0.26, "label": "Calavera Izq"},
-        {"componente": "FARO_DERECHO",   "rx": 0.73, "ry": 0.36, "rw": 0.22, "rh": 0.26, "label": "Calavera Der"},
-        {"componente": "DEFENSA",        "rx": 0.06, "ry": 0.66, "rw": 0.88, "rh": 0.30, "label": "Defensa Trasera"},
-        {"componente": "CALCOMANIA",     "rx": 0.36, "ry": 0.60, "rw": 0.28, "rh": 0.22, "label": "Placa Trasera"},
+        {
+            # Calavera derecha del vehículo = izquierda en foto
+            "componente": "FARO_DERECHO",
+            "rx": 0.02, "ry": 0.38, "rw": 0.14, "rh": 0.30,
+            "label": "Calavera Der.",
+        },
+        {
+            # Calavera izquierda del vehículo = derecha en foto
+            "componente": "FARO_IZQUIERDO",
+            "rx": 0.84, "ry": 0.38, "rw": 0.14, "rh": 0.30,
+            "label": "Calavera Izq.",
+        },
+        {
+            # Número económico + Logo CFE: esquina superior derecha de la caja
+            "componente": "NUMERO_ECONOMICO",
+            "rx": 0.64, "ry": 0.33, "rw": 0.30, "rh": 0.14,
+            "label": "No. Económico / CFE",
+        },
+        {
+            # Mensaje "¿Detectas mal manejo? Repórtame al C-071"
+            "componente": "CALCOMANIA",
+            "rx": 0.08, "ry": 0.68, "rw": 0.84, "rh": 0.09,
+            "label": "Mensaje 071",
+        },
+        {
+            # Placa trasera centrada
+            "componente": "CALCOMANIA",
+            "rx": 0.30, "ry": 0.76, "rw": 0.40, "rh": 0.11,
+            "label": "Placa Trasera",
+        },
+        {
+            # Defensa trasera negra con parachoques
+            "componente": "DEFENSA",
+            "rx": 0.03, "ry": 0.85, "rw": 0.94, "rh": 0.12,
+            "label": "Defensa Trasera",
+        },
     ],
+
+    # ── LATERAL IZQUIERDA ─────────────────────────────────────────────────────
+    # Referencia 8000119543 (lateral derecha espejada).
+    # Logo CFE con texto en el centro de la puerta de la cabina.
+    # Número económico + "SILVERADO": arriba sobre el arco de la rueda trasera.
+    # Neumáticos BFGoodrich All-Terrain visibles en ambos extremos.
     "LATERAL_IZQUIERDA": [
-        {"componente": "ESPEJO_IZQUIERDO", "rx": 0.68, "ry": 0.25, "rw": 0.20, "rh": 0.22, "label": "Espejo Izq"},
-        {"componente": "PUERTA",           "rx": 0.25, "ry": 0.32, "rw": 0.45, "rh": 0.42, "label": "Puerta"},
-        {"componente": "CALCOMANIA",       "rx": 0.32, "ry": 0.38, "rw": 0.30, "rh": 0.24, "label": "Calcomania / No."},
+        {
+            # Logo CFE "Comisión Federal de Electricidad / ZONA GÓMEZ PALACIO"
+            "componente": "LOGO_FRONTAL",
+            "rx": 0.33, "ry": 0.46, "rw": 0.20, "rh": 0.20,
+            "label": "Logo CFE (puerta)",
+        },
+        {
+            # Número económico: texto pequeño sobre el arco de la rueda trasera
+            "componente": "NUMERO_ECONOMICO",
+            "rx": 0.69, "ry": 0.32, "rw": 0.18, "rh": 0.08,
+            "label": "No. Económico",
+        },
+        {
+            # Puerta completa de la cabina
+            "componente": "PUERTA",
+            "rx": 0.22, "ry": 0.28, "rw": 0.36, "rh": 0.46,
+            "label": "Puerta Cabina",
+        },
+        {
+            # Neumático delantero
+            "componente": "OTRO",
+            "rx": 0.04, "ry": 0.62, "rw": 0.20, "rh": 0.30,
+            "label": "Neumático Delantero",
+        },
+        {
+            # Neumático trasero
+            "componente": "OTRO",
+            "rx": 0.62, "ry": 0.62, "rw": 0.20, "rh": 0.30,
+            "label": "Neumático Trasero",
+        },
     ],
+
+    # ── LATERAL DERECHA ───────────────────────────────────────────────────────
+    # Espejo de lateral izquierda.
+    # Logo CFE en la puerta, número económico arriba-izquierda sobre arco trasero.
     "LATERAL_DERECHA": [
-        {"componente": "ESPEJO_DERECHO",   "rx": 0.12, "ry": 0.25, "rw": 0.20, "rh": 0.22, "label": "Espejo Der"},
-        {"componente": "PUERTA",           "rx": 0.30, "ry": 0.32, "rw": 0.45, "rh": 0.42, "label": "Puerta"},
-        {"componente": "CALCOMANIA",       "rx": 0.38, "ry": 0.38, "rw": 0.30, "rh": 0.24, "label": "Calcomania / No."},
+        {
+            "componente": "LOGO_FRONTAL",
+            "rx": 0.47, "ry": 0.46, "rw": 0.20, "rh": 0.20,
+            "label": "Logo CFE (puerta)",
+        },
+        {
+            "componente": "NUMERO_ECONOMICO",
+            "rx": 0.13, "ry": 0.32, "rw": 0.18, "rh": 0.08,
+            "label": "No. Económico",
+        },
+        {
+            "componente": "PUERTA",
+            "rx": 0.42, "ry": 0.28, "rw": 0.36, "rh": 0.46,
+            "label": "Puerta Cabina",
+        },
+        {
+            "componente": "OTRO",
+            "rx": 0.76, "ry": 0.62, "rw": 0.20, "rh": 0.30,
+            "label": "Neumático Delantero",
+        },
+        {
+            "componente": "OTRO",
+            "rx": 0.18, "ry": 0.62, "rw": 0.20, "rh": 0.30,
+            "label": "Neumático Trasero",
+        },
     ],
 }
 
 
 def analizar_componentes_especificos(patron_bgr: np.ndarray, captura_bgr: np.ndarray,
                                      patron_g: np.ndarray, alineada_g: np.ndarray,
-                                     mascara: np.ndarray, vista: str) -> tuple[list, list]:
+                                     mascara: np.ndarray, vista: str,
+                                     reproj_error: float = 5.0) -> tuple[list, list]:
     """
-    Evalúa cada región de interés (ROI) configurada para la vista.
-    Devuelve:
-      - lista de hallazgos anómalos para el reporte / BD
-      - lista completa de componentes evaluados con métricas y estado para visualización
+    Evalúa cada ROI configurada para la vista.
+
+    Cambios respecto a la versión anterior:
+    - ROIs aplicados sobre el frame 640×640 completo, NO sobre el bounding box
+      de la máscara. El bounding box varía con la calidad de la segmentación YOLO
+      y causaba posicionamiento incorrecto cuando la cobertura era baja (~23%).
+    - La cobertura del ROI se valida con píxeles válidos reales (grises > umbral),
+      no con la máscara de YOLO — esto evita saltar ROIs que sí tienen contenido.
+    - Los umbrales de detección se ajustan con una tolerancia derivada del error
+      de reproyección de la homografía: a mayor error residual, umbrales más
+      permisivos para evitar falsos positivos por micro-desalineamiento.
+    - win_size de SSIM se adapta al tamaño del ROI para evitar excepciones en
+      ROIs pequeños.
     """
     rois = ROIS_POR_VISTA.get(vista, [])
     if not rois:
         return [], []
 
-    h, w = patron_g.shape[:2]
-    # Determinar el bounding box del vehículo
-    cnts, _ = cv2.findContours(mascara, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if cnts:
-        c_max = max(cnts, key=cv2.contourArea)
-        vx, vy, vw, vh = cv2.boundingRect(c_max)
-        if vw < w * 0.30 or vh < h * 0.30:
-            vx, vy, vw, vh = 0, 0, w, h
-    else:
-        vx, vy, vw, vh = 0, 0, w, h
+    h, w = patron_g.shape[:2]   # siempre 640×640 tras fit_cuadrado
+
+    # Tolerancia de umbral basada en el error de reproyección.
+    # reproj=0px → tol=0.00, reproj=5px → tol=0.05, reproj=10px → tol=0.10
+    # Así los umbrales se relajan cuando la alineación tiene más error residual.
+    tol = min(0.15, reproj_error / 100.0)
 
     hallazgos = []
     componentes_evaluados = []
 
     for r in rois:
-        comp = r["componente"]
+        comp  = r["componente"]
         label = r.get("label", comp)
-        x = int(vx + r["rx"] * vw)
-        y = int(vy + r["ry"] * vh)
-        bw = int(r["rw"] * vw)
-        bh = int(r["rh"] * vh)
 
-        # Clamping
-        x = max(0, min(x, w - 10))
-        y = max(0, min(y, h - 10))
+        # Coordenadas absolutas sobre el frame 640×640 completo
+        x  = int(r["rx"] * w)
+        y  = int(r["ry"] * h)
+        bw = int(r["rw"] * w)
+        bh = int(r["rh"] * h)
+
+        # Clamping estricto para evitar índices fuera de rango
+        x  = max(0, min(x,  w - 10))
+        y  = max(0, min(y,  h - 10))
         bw = max(10, min(bw, w - x))
         bh = max(10, min(bh, h - y))
 
-        roi_p_g = patron_g[y:y+bh, x:x+bw]
-        roi_a_g = alineada_g[y:y+bh, x:x+bw]
+        roi_p_g   = patron_g  [y:y+bh, x:x+bw]
+        roi_a_g   = alineada_g[y:y+bh, x:x+bw]
         roi_p_bgr = patron_bgr[y:y+bh, x:x+bw]
         roi_c_bgr = captura_bgr[y:y+bh, x:x+bw]
-        roi_mask  = mascara[y:y+bh, x:x+bw]
 
-        cobertura_roi = float(np.count_nonzero(roi_mask)) / float(bw * bh)
-        if cobertura_roi < 0.10:
+        # Cobertura basada en píxeles reales (no depende de la calidad de YOLO)
+        pixeles_validos = int(np.count_nonzero((roi_p_g > 8) & (roi_a_g > 8)))
+        cobertura_roi   = pixeles_validos / float(bw * bh)
+        if cobertura_roi < 0.15:
             continue
 
-        # 1. SSIM local
-        val = (roi_p_g > 5) & (roi_a_g > 5)
-        if np.count_nonzero(val) > 40:
-            ssim_local, _ = compare_ssim(roi_p_g, roi_a_g, full=True, data_range=255)
-            ssim_local = float(np.clip(ssim_local, 0.0, 1.0))
+        # ── 1. SSIM local con win_size adaptativo ────────────────────────────
+        # win_size debe ser impar y ≤ min(bh, bw). Si el ROI es muy pequeño
+        # SSIM lanzaría excepción — lo limitamos a máximo 7.
+        min_dim  = min(bh, bw)
+        win_size = min(7, min_dim if min_dim % 2 == 1 else min_dim - 1)
+        win_size = max(3, win_size)
+
+        if pixeles_validos > win_size * win_size:
+            try:
+                ssim_local, _ = compare_ssim(
+                    roi_p_g, roi_a_g, full=True,
+                    data_range=255, win_size=win_size
+                )
+                ssim_local = float(np.clip(ssim_local, 0.0, 1.0))
+            except Exception:
+                ssim_local = 0.70
         else:
             ssim_local = 0.70
 
-        # 2. Nitidez / Varianza del Laplaciano
+        # ── 2. Nitidez — varianza del Laplaciano ─────────────────────────────
         var_p = float(cv2.Laplacian(roi_p_g, cv2.CV_64F).var())
         var_c = float(cv2.Laplacian(roi_a_g, cv2.CV_64F).var())
         ratio_nitidez = var_c / (var_p + 1e-5)
 
-        # 3. Densidad de Bordes (Canny)
+        # ── 3. Densidad de bordes Canny ───────────────────────────────────────
         canny_p = cv2.Canny(roi_p_g, 35, 100)
         canny_c = cv2.Canny(roi_a_g, 35, 100)
-        dens_p = float(np.count_nonzero(canny_p)) / float(canny_p.size)
-        dens_c = float(np.count_nonzero(canny_c)) / float(canny_c.size)
+        dens_p  = float(np.count_nonzero(canny_p)) / float(canny_p.size)
+        dens_c  = float(np.count_nonzero(canny_c)) / float(canny_c.size)
         ratio_bordes = dens_c / (dens_p + 1e-5)
 
-        # 4. Color HSV local
+        # ── 4. Correlación de color HSV local ────────────────────────────────
         hsv_p = cv2.cvtColor(roi_p_bgr, cv2.COLOR_BGR2HSV)
         hsv_c = cv2.cvtColor(roi_c_bgr, cv2.COLOR_BGR2HSV)
         hist_p = cv2.calcHist([hsv_p], [0, 1], None, [16, 16], [0, 180, 0, 256])
@@ -505,45 +655,57 @@ def analizar_componentes_especificos(patron_bgr: np.ndarray, captura_bgr: np.nda
         color_corr = float(cv2.compareHist(hist_p, hist_c, cv2.HISTCMP_CORREL))
         color_corr = max(0.0, (color_corr + 1.0) / 2.0)
 
-        # Diagnóstico de anomalía
+        # ── Diagnóstico con umbrales ajustados por error de reproyección ──────
+        # tol relaja los umbrales cuando la homografía tiene más error residual,
+        # evitando falsos positivos por micro-desalineamiento.
         tipo_hallazgo = None
-        confianza = 0.0
+        confianza     = 0.0
 
-        if dens_p > 0.025 and ratio_bordes < 0.22 and ssim_local < 0.45:
+        if dens_p > 0.025 and ratio_bordes < (0.22 - tol) and ssim_local < (0.45 - tol):
+            # Componente completamente ausente: el patrón tiene bordes pero la captura no
             tipo_hallazgo = "AUSENTE"
             confianza = round(min(0.98, max(0.60, 1.0 - ratio_bordes)), 2)
-        elif comp in ("LOGO_FRONTAL", "LOGO_TRASERO", "CALCOMANIA", "NUMERO_ECONOMICO") and var_p > 70 and var_c < 25 and ratio_nitidez < 0.35:
+
+        elif (comp in ("LOGO_FRONTAL", "LOGO_TRASERO", "CALCOMANIA", "NUMERO_ECONOMICO")
+              and var_p > 70 and var_c < 25 and ratio_nitidez < (0.35 - tol)):
+            # Texto/logo presente pero ilegible: nitidez caída drásticamente
             tipo_hallazgo = "BORROSO"
             confianza = round(min(0.95, max(0.55, 1.0 - ratio_nitidez)), 2)
-        elif ssim_local < 0.38 and color_corr < 0.45:
+
+        elif ssim_local < (0.38 - tol) and color_corr < (0.45 - tol):
+            # Forma Y color completamente distintos: deformación severa o pieza reemplazada
             tipo_hallazgo = "DEFORMADO"
             confianza = round(min(0.95, max(0.55, 1.0 - ssim_local)), 2)
-        elif ssim_local < 0.50:
+
+        elif ssim_local < (0.52 - tol):
+            # Diferencia estructural significativa: golpe, ralladura profunda, óxido
             tipo_hallazgo = "DETERIORADO"
             confianza = round(min(0.90, max(0.50, 1.0 - ssim_local)), 2)
-        elif ssim_local < 0.62:
+
+        elif ssim_local < (0.65 - tol):
+            # Diferencia leve: suciedad, reflejo distinto, pequeña abolladura
             tipo_hallazgo = "DIFERENCIA_VISUAL"
             confianza = round(min(0.85, max(0.40, 1.0 - ssim_local)), 2)
 
-        info_comp = {
+        componentes_evaluados.append({
             "componente": comp,
-            "label": label,
-            "region": {"x": x, "y": y, "w": bw, "h": bh},
-            "ssim": round(ssim_local, 3),
-            "nitidez": round(ratio_nitidez, 3),
-            "estado": tipo_hallazgo if tipo_hallazgo else "OK",
-            "confianza": confianza if tipo_hallazgo else round(ssim_local, 2)
-        }
-        componentes_evaluados.append(info_comp)
+            "label":      label,
+            "region":     {"x": x, "y": y, "w": bw, "h": bh},
+            "ssim":       round(ssim_local, 3),
+            "nitidez":    round(ratio_nitidez, 3),
+            "color_corr": round(color_corr, 3),
+            "estado":     tipo_hallazgo if tipo_hallazgo else "OK",
+            "confianza":  confianza if tipo_hallazgo else round(ssim_local, 2),
+        })
 
         if tipo_hallazgo is not None:
             hallazgos.append({
                 "componente": comp,
-                "tipo": tipo_hallazgo,
-                "confianza": confianza,
-                "region": {"x": x, "y": y, "w": bw, "h": bh},
-                "similitud": round(ssim_local, 3),
-                "esManual": False
+                "tipo":       tipo_hallazgo,
+                "confianza":  confianza,
+                "region":     {"x": x, "y": y, "w": bw, "h": bh},
+                "similitud":  round(ssim_local, 3),
+                "esManual":   False,
             })
 
     return hallazgos, componentes_evaluados
@@ -610,45 +772,66 @@ def _comp(cx: float, cy: float) -> str:
     return "OTRO"
 
 
-def diff_base64(patron_g: np.ndarray, alineada_g: np.ndarray,
-                mapa: np.ndarray, mascara: np.ndarray,
-                componentes_evaluados: list = None) -> str:
-    diff    = ((1.0 - mapa) * 255).astype(np.uint8)
-    diff[mascara == 0] = 127
-    colored = cv2.applyColorMap(diff, cv2.COLORMAP_JET)
-    base    = cv2.cvtColor(alineada_g, cv2.COLOR_GRAY2BGR)
-    overlay = cv2.addWeighted(base, 0.55, colored, 0.45, 0)
+def imagenes_comparacion_base64(patron_bgr: np.ndarray, captura_bgr: np.ndarray,
+                                componentes_evaluados: list | None = None,
+                                tam_origen_roi: tuple[int, int] = (640, 640)) -> tuple[str, str]:
+    """
+    Devuelve dos imágenes limpias (sin colormap) para el slider de comparación:
+      - imagen del patrón con rectángulos de ROI
+      - imagen de la captura con los mismos rectángulos
 
-    # Dibujar las regiones de interés sobre la imagen
+    Los rectángulos se dibujan directamente sobre las imágenes completas a resolución estándar:
+      verde   = componente OK
+      rojo    = anomalía detectada
+      naranja = diferencia leve
+    """
+    patron_out  = patron_bgr.copy()
+    captura_out = captura_bgr.copy()
+
+    h, w = patron_out.shape[:2]
+    orig_w, orig_h = tam_origen_roi
+    scale_x = w / float(orig_w) if orig_w > 0 else 1.0
+    scale_y = h / float(orig_h) if orig_h > 0 else 1.0
+
     if componentes_evaluados:
         for comp in componentes_evaluados:
-            reg = comp["region"]
-            x, y, bw, bh = reg["x"], reg["y"], reg["w"], reg["h"]
+            reg    = comp["region"]
+            x  = int(reg["x"] * scale_x)
+            y  = int(reg["y"] * scale_y)
+            bw = int(reg["w"] * scale_x)
+            bh = int(reg["h"] * scale_y)
             estado = comp.get("estado", "OK")
-            label = comp.get("label", comp.get("componente", ""))
+            label  = comp.get("label", comp.get("componente", ""))
 
             if estado == "OK":
-                color = (0, 220, 90)   # Verde
-                thickness = 1
-                txt = f"{label}: OK"
+                color     = (34, 197, 94)    # Verde
+                thickness = max(2, int(round(2 * scale_x)))
+            elif estado in ("AUSENTE", "DEFORMADO"):
+                color     = (30, 30, 220)    # Rojo
+                thickness = max(3, int(round(3 * scale_x)))
             else:
-                color = (30, 30, 230)  # Rojo
-                thickness = 2
-                txt = f"{label}: {estado}"
+                color     = (30, 165, 255)   # Naranja/ámbar
+                thickness = max(2, int(round(2 * scale_x)))
 
-            # Rectángulo delimitador
-            cv2.rectangle(overlay, (x, y), (x + bw, y + bh), color, thickness)
+            txt = f"{label}" if estado == "OK" else f"{label}: {estado}"
+            font    = cv2.FONT_HERSHEY_SIMPLEX
+            fscale  = 0.40 * scale_x
+            (tw, th), _ = cv2.getTextSize(txt, font, fscale, 1)
+            ty = max(y - 6, th + 5)
 
-            # Fondo y texto
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            f_scale = 0.38
-            (tw, th), _ = cv2.getTextSize(txt, font, f_scale, 1)
-            ty = max(y - 5, th + 4)
-            cv2.rectangle(overlay, (x, ty - th - 3), (x + tw + 6, ty + 2), (0, 0, 0), -1)
-            cv2.putText(overlay, txt, (x + 3, ty - 1), font, f_scale, color, 1, cv2.LINE_AA)
+            for img in (patron_out, captura_out):
+                cv2.rectangle(img, (x, y), (x + bw, y + bh), color, thickness)
+                # Fondo semitransparente para el texto
+                overlay = img.copy()
+                cv2.rectangle(overlay, (x, ty - th - 4), (x + tw + 8, ty + 3), (0, 0, 0), -1)
+                cv2.addWeighted(overlay, 0.55, img, 0.45, 0, img)
+                cv2.putText(img, txt, (x + 4, ty), font, fscale, color, 1, cv2.LINE_AA)
 
-    _, buf  = cv2.imencode(".jpg", overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return base64.b64encode(buf).decode("utf-8")
+    def to_b64(img: np.ndarray) -> str:
+        _, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        return base64.b64encode(buf).decode("utf-8")
+
+    return to_b64(patron_out), to_b64(captura_out)
 
 
 # ── Pipeline principal ────────────────────────────────────────────────────────
@@ -674,8 +857,17 @@ def comparar():
         if img_patron is None:
             return jsonify({"error": "No se pudo leer la imagen patrón."}), 500
 
-        # 1. Recortar patrón al encuadre de la vista
-        patron_crop = recortar_marco(img_patron, vista)
+        # Normalizar ambas imágenes a la resolución estándar 1280 × 960 (4:3)
+        if (img_patron.shape[1], img_patron.shape[0]) != (STD_W, STD_H):
+            img_patron = cv2.resize(img_patron, (STD_W, STD_H), interpolation=cv2.INTER_AREA)
+
+        if (img_captura.shape[1], img_captura.shape[0]) != (STD_W, STD_H):
+            img_captura = cv2.resize(img_captura, (STD_W, STD_H), interpolation=cv2.INTER_AREA)
+
+        # 1. Ya NO se aplica recortar_marco: ambas imágenes vienen encuadradas exactamente
+        #    con el marco de captura de la app. Aplicar recortar_marco causaba un doble recorte
+        #    y zoom erróneo sobre la imagen patrón.
+        patron_crop = img_patron
 
         # 2. Normalizar iluminación antes de cualquier otra operación
         patron_norm  = normalizar_iluminacion(patron_crop)
@@ -716,12 +908,17 @@ def comparar():
         score_final = W_HIST * sa + W_MATCH * sb + W_BORDES * sd + W_SSIM * sc
 
         # 11. Análisis detallado de puntos de interés específicos (ROIs)
+        # Se pasa el error de reproyección para ajustar los umbrales de detección
         hallazgos_especificos, comp_eval = analizar_componentes_especificos(
-            patron_fit, captura_fit, gray_patron, gray_alineada, mascara_comb, vista
+            patron_fit, captura_fit, gray_patron, gray_alineada, mascara_comb, vista,
+            reproj_error=info_alin.get("reproj_error", 5.0) or 5.0
         )
 
         hallazgos = detectar_hallazgos(mapa, mascara_comb, gray_patron, gray_alineada, hallazgos_especificos)
-        diff_b64  = diff_base64(gray_patron, gray_alineada, mapa, mascara_comb, comp_eval)
+        # Devolver imágenes completas a resolución estándar 1280×960 con ROIs dibujados
+        img_patron_b64, img_captura_b64 = imagenes_comparacion_base64(
+            img_patron, img_captura, comp_eval, tam_origen_roi=(TARGET_W, TARGET_H)
+        )
 
         # Estado global ajustado por componentes críticos
         estado = (
@@ -738,11 +935,12 @@ def comparar():
         cobertura = float(cv2.countNonZero(mascara_comb)) / mascara_comb.size
 
         return jsonify({
-            "similitud":   round(score_final, 4),
-            "estado":      estado,
-            "hallazgos":   hallazgos,
-            "componentes": comp_eval,
-            "imagen_diff": diff_b64,
+            "similitud":      round(score_final, 4),
+            "estado":         estado,
+            "hallazgos":      hallazgos,
+            "componentes":    comp_eval,
+            "imagen_patron":  img_patron_b64,
+            "imagen_captura": img_captura_b64,
             "debug": {
                 "score_histograma": round(sa, 4),
                 "score_matches":    round(sb, 4),

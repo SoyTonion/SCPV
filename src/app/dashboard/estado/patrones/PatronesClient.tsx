@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { Upload, Trash2, ImageOff, RefreshCw, ChevronDown, ChevronUp, Search, Camera } from 'lucide-react';
+import { normalizarArchivoA1280x960 } from '@/lib/inspeccion-config';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -53,8 +54,9 @@ function TarjetaVista({
     if (!file) return;
     setSubiendo(true);
     try {
+      const blobNormalizado = await normalizarArchivoA1280x960(file);
       const form = new FormData();
-      form.append('imagen',     file);
+      form.append('imagen',     blobNormalizado, `${vista}.jpg`);
       form.append('vehiculoId', vehiculoId);
       form.append('vista',      vista);
       const res = await fetch('/api/imagenes-patron/upload', { method: 'POST', body: form });

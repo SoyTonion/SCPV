@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 
+import { marcoConfig, capturarFotoEstandar, obtenerMarco43, INSTRUCCION_VISTA, Vista } from '@/lib/inspeccion-config';
+
 type VehiculoData = {
   id: string;
   economico: string | null;
@@ -13,24 +15,13 @@ type VehiculoData = {
   placas: string | null;
 };
 
-type Vista = 'FRONTAL' | 'TRASERA' | 'LATERAL_IZQUIERDA' | 'LATERAL_DERECHA' | 'INTERIOR';
-
-type ComponenteEvaluado = {
-  componente: string;
-  label: string;
-  region: { x: number; y: number; w: number; h: number };
-  ssim: number;
-  nitidez: number;
-  estado: string;
-  confianza: number;
-};
-
 type ResultadoComparacion = {
-  similitud:   number;
-  estado:      'NORMAL' | 'ADVERTENCIA' | 'CRITICO';
-  hallazgos:   { componente: string; tipo: string; confianza: number; esManual?: boolean; descripcion?: string }[];
-  componentes?: ComponenteEvaluado[];
-  imagen_diff: string;
+  similitud:      number;
+  estado:         'NORMAL' | 'ADVERTENCIA' | 'CRITICO';
+  hallazgos:      { componente: string; tipo: string; confianza: number; esManual?: boolean }[];
+  componentes?:   { componente: string; label: string; estado: string; ssim: number; confianza: number }[];
+  imagen_patron:  string;  // base64 JPEG — patrón con ROIs dibujados
+  imagen_captura: string;  // base64 JPEG — captura con ROIs dibujados
   debug?: {
     alineacion_ok:       boolean;
     motivo:              string;
@@ -56,43 +47,19 @@ const vistas: { label: string; vista: Vista }[] = [
   { label: 'Interior',          vista: 'INTERIOR'          },
 ];
 
-// ── MARCOS SVG ───────────────────────────────────────────────────────────────
-// Las proporciones de cada rect reflejan la forma real del vehículo en cada ángulo,
-// basadas en las fotos patrón disponibles (Silverado cabina sencilla).
-// El canvas de captura recorta exactamente esta región antes de enviar a OpenCV.
-const marcoConfig: Record<Vista, { rect: { x: number; y: number; w: number; h: number }; instruccion: string }> = {
-  // Frontal: casi cuadrado, el vehículo llena de lado a lado
-  FRONTAL: {
-    rect: { x: 5, y: 8, w: 90, h: 78 },
-    instruccion: 'Centra el frente del vehículo',
-  },
-  // Trasera: igual que frontal
-  TRASERA: {
-    rect: { x: 5, y: 8, w: 90, h: 78 },
-    instruccion: 'Centra la parte trasera del vehículo',
-  },
-  // Lateral: muy ancho y bajo — el costado es un rectángulo apaisado
-  LATERAL_IZQUIERDA: {
-    rect: { x: 2, y: 22, w: 96, h: 52 },
-    instruccion: 'Alinea el costado completo del vehículo',
-  },
-  LATERAL_DERECHA: {
-    rect: { x: 2, y: 22, w: 96, h: 52 },
-    instruccion: 'Alinea el costado completo del vehículo',
-  },
-  // Interior: cuadrado, habitáculo desde la puerta
-  INTERIOR: {
-    rect: { x: 8, y: 12, w: 84, h: 72 },
-    instruccion: 'Enfoca el habitáculo',
-  },
-};
-
-// ── OVERLAY DE PATRÓN RECORTADO ──────────────────────────────────────────────
-// Dibuja la imagen patrón del vehículo adaptada para que cubra completamente
-// el área de captura (marco) manteniendo sus proporciones.
-function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
+// ── OVERLAY DE PATRÓN DE REFERENCIA ──────────────────────────────────────────
+// Dibuja la imagen patrón de referencia adaptada exactamente al marco de captura
+// NUNCA recorta laterales ni extremos del vehículo (faros, espejos y defensas visibles).
+function OverlayPatron({
+  src,
+  vista,
+  rect,
+}: {
+  src: string;
+  vista: Vista;
+  rect: { x: number; y: number; w: number; h: number };
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { rect } = marcoConfig[vista];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -103,7 +70,6 @@ function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      // Dimensiones dinámicas del canvas en pantalla
       const cw = canvas.offsetWidth || 640;
       const ch = canvas.offsetHeight || 480;
 
@@ -111,33 +77,36 @@ function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
       canvas.height = ch;
       ctx.clearRect(0, 0, cw, ch);
 
-      // 1. Calcular en píxeles la ubicación y tamaño del marco sobre la pantalla
       const destX = (rect.x / 100) * cw;
       const destY = (rect.y / 100) * ch;
       const destW = (rect.w / 100) * cw;
       const destH = (rect.h / 100) * ch;
 
-      // 2. Proporción aspect-ratio ("object-cover") para que la imagen
-      // llene el rectángulo del marco sin distorsionarse ni dejar bordes.
       const imgRatio = img.naturalWidth / img.naturalHeight;
       const rectRatio = destW / destH;
 
-      let srcX = 0, srcY = 0, srcW = img.naturalWidth, srcH = img.naturalHeight;
+      // NUNCA recortar la imagen de referencia: usar contain adaptativo
+      // para mostrar el 100% del vehículo (incluyendo espejos y faros).
+      let drawW = destW;
+      let drawH = destH;
+      let drawX = destX;
+      let drawY = destY;
 
-      if (imgRatio > rectRatio) {
-        // La imagen es más ancha que el marco: recortamos los lados sobrantes
-        srcW = img.naturalHeight * rectRatio;
-        srcX = (img.naturalWidth - srcW) / 2;
-      } else {
-        // La imagen es más alta que el marco: recortamos arriba y abajo
-        srcH = img.naturalWidth / rectRatio;
-        srcY = (img.naturalHeight - srcH) / 2;
+      if (Math.abs(imgRatio - rectRatio) > 0.01) {
+        if (imgRatio > rectRatio) {
+          // Si la imagen es más ancha que el marco, ajustamos el alto para no cortar laterales
+          drawH = destW / imgRatio;
+          drawY = destY + (destH - drawH) / 2;
+        } else {
+          // Si es más alta, ajustamos el ancho para no cortar arriba/abajo
+          drawW = destH * imgRatio;
+          drawX = destX + (destW - drawW) / 2;
+        }
       }
 
-      ctx.globalAlpha = 0.40; // Opacidad de la guía de referencia
-      
-      // 3. Dibujar únicamente la imagen ajustada EXACTAMENTE dentro de las coordenadas del marco
-      ctx.drawImage(img, srcX, srcY, srcW, srcH, destX, destY, destW, destH);
+      ctx.globalAlpha = 0.45;
+      // Dibujar la imagen completa (sin descartar ningún píxel original)
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, drawX, drawY, drawW, drawH);
     };
     img.src = src;
   }, [src, vista, rect]);
@@ -151,7 +120,95 @@ function OverlayPatron({ src, vista }: { src: string; vista: Vista }) {
   );
 }
 
-// ── PANTALLA DE RESULTADO (Validación Human-in-the-Loop) ─────────────────────
+// ── SLIDER DE COMPARACIÓN PATRÓN / CAPTURA ───────────────────────────────────
+function SliderComparacion({ patron, captura }: { patron: string; captura: string }) {
+  const [pos, setPos]         = useState(50);   // 0–100 %
+  const [dragging, setDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const actualizar = useCallback((clientX: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const pct = Math.min(100, Math.max(0, ((clientX - rect.left) / rect.width) * 100));
+    setPos(pct);
+  }, []);
+
+  // Mouse
+  const onMouseDown = (e: React.MouseEvent) => { setDragging(true); actualizar(e.clientX); };
+  const onMouseMove = useCallback((e: MouseEvent) => { if (dragging) actualizar(e.clientX); }, [dragging, actualizar]);
+  const onMouseUp   = useCallback(() => setDragging(false), []);
+
+  // Touch
+  const onTouchStart = (e: React.TouchEvent) => { setDragging(true); actualizar(e.touches[0].clientX); };
+  const onTouchMove  = useCallback((e: TouchEvent) => { if (dragging) actualizar(e.touches[0].clientX); }, [dragging, actualizar]);
+  const onTouchEnd   = useCallback(() => setDragging(false), []);
+
+  useEffect(() => {
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend',  onTouchEnd);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend',  onTouchEnd);
+    };
+  }, [onMouseMove, onMouseUp, onTouchMove, onTouchEnd]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full rounded-xl overflow-hidden border border-slate-200 shadow-sm select-none cursor-col-resize bg-slate-950"
+      style={{ aspectRatio: '4/3' }}
+      onMouseDown={onMouseDown}
+      onTouchStart={onTouchStart}
+    >
+      {/* Imagen captura — capa base completa */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`data:image/jpeg;base64,${captura}`}
+        alt="Captura"
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+        draggable={false}
+      />
+
+      {/* Imagen patrón — recortada limpiamente con clip-path según la posición del slider */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`data:image/jpeg;base64,${patron}`}
+        alt="Patrón"
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none select-none"
+        style={{ clipPath: `inset(0 ${100 - pos}% 0 0)` }}
+        draggable={false}
+      />
+
+      {/* Línea divisora */}
+      <div
+        className="absolute top-0 bottom-0 w-0.5 bg-white shadow-[0_0_8px_rgba(0,0,0,0.8)] pointer-events-none"
+        style={{ left: `${pos}%` }}
+      />
+
+      {/* Handle circular */}
+      <div
+        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 bg-white rounded-full shadow-lg border-2 border-slate-300 flex items-center justify-center pointer-events-none"
+        style={{ left: `${pos}%` }}
+      >
+        <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 9l-3 3 3 3M16 9l3 3-3 3" />
+        </svg>
+      </div>
+
+      {/* Labels */}
+      <span className="absolute top-2 left-2 text-[10px] font-extrabold text-white bg-[#007A33]/90 px-2 py-0.5 rounded-full backdrop-blur-sm pointer-events-none shadow">
+        PATRÓN
+      </span>
+      <span className="absolute top-2 right-2 text-[10px] font-extrabold text-white bg-slate-800/90 px-2 py-0.5 rounded-full backdrop-blur-sm pointer-events-none shadow">
+        CAPTURA
+      </span>
+    </div>
+  );
+}
 function PantallaResultado({
   resultado, vista, vehiculo, onNuevaCaptura, onSiguiente,
 }: {
@@ -164,51 +221,77 @@ function PantallaResultado({
   const pct   = Math.round(resultado.similitud * 100);
   const label = vistas.find(v => v.vista === vista)?.label ?? vista;
 
-  // Estado local para la validación humana
-  const [hallazgos, setHallazgos] = useState(resultado.hallazgos.map(h => ({ ...h, esManual: false })));
+  const [hallazgos,     setHallazgos]     = useState(resultado.hallazgos.map(h => ({ ...h, esManual: h.esManual ?? false })));
   const [observaciones, setObservaciones] = useState('');
-  const [guardando, setGuardando] = useState(false);
-  
-  // Estado para el mini-formulario
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [nComponente, setNComponente] = useState('PUERTA');
-  const [nTipo, setNTipo] = useState('DETERIORADO');
+  const [guardando,     setGuardando]     = useState(false);
+  const [mostrarForm,   setMostrarForm]   = useState(false);
+  const [nComponente,   setNComponente]   = useState('PUERTA');
+  const [nTipo,         setNTipo]         = useState('DETERIORADO');
+  const [guardadoOk,    setGuardadoOk]    = useState(false);
 
-  const componentesEnum = ['LOGO_FRONTAL', 'LOGO_TRASERO', 'CALCOMANIA', 'NUMERO_ECONOMICO', 'FARO_IZQUIERDO', 'FARO_DERECHO', 'ESPEJO_IZQUIERDO', 'ESPEJO_DERECHO', 'DEFENSA', 'PUERTA', 'OTRO'];
-  const tiposEnum = ['AUSENTE', 'BORROSO', 'DETERIORADO', 'DEFORMADO', 'DIFERENCIA_VISUAL', 'BAJA_SIMILITUD', 'OTRO'];
+  const COMPONENTES = ['LOGO_FRONTAL','LOGO_TRASERO','CALCOMANIA','NUMERO_ECONOMICO',
+    'FARO_IZQUIERDO','FARO_DERECHO','ESPEJO_IZQUIERDO','ESPEJO_DERECHO','DEFENSA','PUERTA','OTRO'];
+  const TIPOS = ['AUSENTE','BORROSO','DETERIORADO','DEFORMADO','DIFERENCIA_VISUAL','BAJA_SIMILITUD','OTRO'];
 
-  const eliminarHallazgo = (index: number) => {
-    setHallazgos(prev => prev.filter((_, i) => i !== index));
+  // Labels legibles para componentes
+  const labelComp: Record<string, string> = {
+    LOGO_FRONTAL:'Logo Frontal', LOGO_TRASERO:'Logo Trasero', CALCOMANIA:'Calcomanía',
+    NUMERO_ECONOMICO:'No. Económico', FARO_IZQUIERDO:'Faro Izq.', FARO_DERECHO:'Faro Der.',
+    ESPEJO_IZQUIERDO:'Espejo Izq.', ESPEJO_DERECHO:'Espejo Der.',
+    DEFENSA:'Defensa', PUERTA:'Puerta', OTRO:'Otro',
+  };
+  const labelTipo: Record<string, string> = {
+    AUSENTE:'Ausente', BORROSO:'Borroso', DETERIORADO:'Deteriorado',
+    DEFORMADO:'Deformado', DIFERENCIA_VISUAL:'Dif. Visual',
+    BAJA_SIMILITUD:'Baja Similitud', OTRO:'Otro',
   };
 
+  const colorTipo = (tipo: string) => {
+    const map: Record<string, string> = {
+      AUSENTE:           'bg-red-100    text-red-800    border-red-300',
+      DEFORMADO:         'bg-red-100    text-red-800    border-red-300',
+      BORROSO:           'bg-amber-100  text-amber-800  border-amber-300',
+      DETERIORADO:       'bg-amber-100  text-amber-800  border-amber-300',
+      DIFERENCIA_VISUAL: 'bg-slate-100  text-slate-700  border-slate-300',
+      BAJA_SIMILITUD:    'bg-slate-100  text-slate-700  border-slate-300',
+    };
+    return map[tipo] ?? 'bg-slate-100 text-slate-700 border-slate-300';
+  };
+
+  const colorEstado = {
+    NORMAL:      { wrap: 'bg-[#007A33]/5  border-[#007A33]/30', text: 'text-[#007A33]',  badge: 'bg-[#007A33]/10  text-[#007A33]' },
+    ADVERTENCIA: { wrap: 'bg-amber-50     border-amber-200',    text: 'text-amber-700',  badge: 'bg-amber-100    text-amber-800' },
+    CRITICO:     { wrap: 'bg-red-50       border-red-200',      text: 'text-red-700',    badge: 'bg-red-100      text-red-800' },
+  }[resultado.estado];
+
+  const eliminarHallazgo = (i: number) => setHallazgos(p => p.filter((_, j) => j !== i));
+
   const agregarHallazgo = () => {
-    setHallazgos(prev => [...prev, { componente: nComponente, tipo: nTipo, confianza: 1, esManual: true }]);
+    setHallazgos(p => [...p, { componente: nComponente, tipo: nTipo, confianza: 1, esManual: true }]);
     setMostrarForm(false);
   };
 
   const guardarYValidar = async () => {
     setGuardando(true);
     try {
-      const estadoFinal = hallazgos.length === 0 ? 'NORMAL' : resultado.estado === 'NORMAL' ? 'ADVERTENCIA' : resultado.estado;
-
-      const payload = {
-        vehiculoId: vehiculo.id,
-        estadoGeneral: estadoFinal,
-        observaciones: observaciones,
-        fotografias: [ { vista: vista, rutaImagen: 'ruta/procesada.jpg' } ], // En prod vendría del S3/Local
-        hallazgos: hallazgos
-      };
+      const estadoFinal = hallazgos.length === 0
+        ? 'NORMAL'
+        : resultado.estado === 'NORMAL' ? 'ADVERTENCIA' : resultado.estado;
 
       const res = await fetch('/api/inspecciones', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          vehiculoId:    vehiculo.id,
+          estadoGeneral: estadoFinal,
+          observaciones,
+          fotografias: [{ vista, rutaImagen: 'ruta/procesada.jpg' }],
+          hallazgos,
+        }),
       });
-
       if (!res.ok) throw new Error('Fallo al guardar');
-      
-      alert('Inspección guardada y validada correctamente por el operador.');
-      onSiguiente();
+      setGuardadoOk(true);
+      setTimeout(() => { setGuardadoOk(false); onSiguiente(); }, 1800);
     } catch (err) {
       console.error(err);
       alert('Error al intentar guardar la validación.');
@@ -217,134 +300,234 @@ function PantallaResultado({
     }
   };
 
-  const colorEstado = {
-    NORMAL:      { bg: 'bg-green-50',  border: 'border-green-200',  text: 'text-green-700',  badge: 'bg-green-100 text-green-800'  },
-    ADVERTENCIA: { bg: 'bg-amber-50',  border: 'border-amber-200',  text: 'text-amber-700',  badge: 'bg-amber-100 text-amber-800'  },
-    CRITICO:     { bg: 'bg-red-50',    border: 'border-red-200',    text: 'text-red-700',    badge: 'bg-red-100 text-red-800'      },
-  }[resultado.estado];
+  // ── ESTADO: guardado exitoso ────────────────────────────────────────────────
+  if (guardadoOk) {
+    return (
+      <div className="p-4 w-full max-w-md mx-auto">
+        <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 relative overflow-hidden flex flex-col items-center text-center">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-[#007A33]" />
+          <div className="w-14 h-14 mt-4 mb-4 rounded-full bg-[#007A33] flex items-center justify-center shadow-lg ring-4 ring-[#007A33]/10">
+            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-lg font-extrabold text-slate-800">Inspección guardada</p>
+          <p className="text-xs text-slate-500 mt-1">Validada por el inspector</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-4 w-full max-w-md mx-auto">
-      <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 relative overflow-hidden">
+    <div className="p-4 w-full max-w-md mx-auto pb-8">
+      <div className="bg-white rounded-2xl shadow-lg border border-slate-100 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1.5 bg-[#007A33]" />
 
-        <h1 className="text-xl font-extrabold text-slate-800 mb-1 text-center tracking-tight mt-2">
-          Validación de Hallazgos — {label}
-        </h1>
-        <p className="text-xs text-slate-500 mb-5 text-center font-medium">
-          {vehiculo.marcaVehiculo} {vehiculo.submarcaVehiculo} · {vehiculo.placas ?? 'S/P'}
-        </p>
-
-        {/* Estado original sugerido por la IA */}
-        <div className={`rounded-xl p-3 mb-5 border ${colorEstado.bg} ${colorEstado.border} flex justify-between items-center`}>
-          <span className={`text-xs font-bold uppercase ${colorEstado.text}`}>
-            Sugerencia IA: {resultado.estado}
-          </span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${colorEstado.badge}`}>
-            {pct}% similitud
-          </span>
+        {/* Cabecera */}
+        <div className="px-6 pt-5 pb-4 border-b border-slate-100">
+          <h1 className="text-lg font-extrabold text-slate-800 text-center tracking-tight">
+            Validación — {label}
+          </h1>
+          <p className="text-xs text-slate-500 text-center mt-0.5">
+            {vehiculo.marcaVehiculo} {vehiculo.submarcaVehiculo} · {vehiculo.placas ?? 'S/P'}
+          </p>
         </div>
 
-        {/* Imagen de diferencias */}
-        {resultado.imagen_diff && (
-          <div className="mb-5">
-            <img src={`data:image/jpeg;base64,\${resultado.imagen_diff}`} alt="Mapa de diferencias" className="w-full rounded-xl border border-slate-200 shadow-sm" />
-          </div>
-        )}
+        <div className="p-5 space-y-5">
 
-        {/* Lista editable de hallazgos */}
-        <div className="mb-5">
-          <div className="flex justify-between items-center mb-2">
-            <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
-              Hallazgos a validar ({hallazgos.length})
+          {/* Badge de estado IA */}
+          <div className={`rounded-xl px-4 py-3 border flex items-center justify-between ${colorEstado.wrap}`}>
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-extrabold uppercase tracking-wide ${colorEstado.text}`}>
+                {resultado.estado}
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">— Sugerencia IA</span>
+            </div>
+            <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full ${colorEstado.badge}`}>
+              {pct}%
+            </span>
+          </div>
+
+          {/* Slider de comparación patrón / captura */}
+          {resultado.imagen_patron && resultado.imagen_captura && (
+            <div>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">
+                Comparación — arrastra para ver patrón vs captura
+              </p>
+              <SliderComparacion
+                patron={resultado.imagen_patron}
+                captura={resultado.imagen_captura}
+              />
+            </div>
+          )}
+
+          {/* Debug compacto (scores individuales) */}
+          {resultado.debug && (
+            <div className="bg-slate-50 rounded-xl border border-slate-200 px-3 py-2.5">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                {[
+                  ['Histograma HSV',  resultado.debug.score_histograma],
+                  ['Matches SIFT',    resultado.debug.score_matches],
+                  ['Bordes Canny',    resultado.debug.score_bordes],
+                  ['SSIM interior',   resultado.debug.score_ssim],
+                ].filter(([, v]) => v !== undefined).map(([k, v]) => (
+                  <React.Fragment key={k as string}>
+                    <span className="text-slate-400">{k as string}</span>
+                    <span className="font-mono font-bold text-slate-600">
+                      {Math.round((v as number) * 100)}%
+                    </span>
+                  </React.Fragment>
+                ))}
+              </div>
+              {resultado.debug.cobertura_mascara !== undefined && (
+                <p className={`text-[10px] font-mono mt-1.5 pt-1.5 border-t border-slate-200 ${
+                  resultado.debug.cobertura_mascara < 0.25 ? 'text-amber-600' : 'text-slate-400'
+                }`}>
+                  Cobertura máscara: {Math.round(resultado.debug.cobertura_mascara * 100)}%
+                  {resultado.debug.cobertura_mascara < 0.25 ? ' · foto más cercana mejora la precisión' : ''}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Hallazgos editables */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                Hallazgos ({hallazgos.length})
+              </p>
+              <button
+                onClick={() => setMostrarForm(v => !v)}
+                className={`flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors ${
+                  mostrarForm
+                    ? 'bg-slate-200 text-slate-600'
+                    : 'bg-[#007A33]/10 text-[#007A33] hover:bg-[#007A33]/20'
+                }`}
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5"
+                    d={mostrarForm ? 'M6 18L18 6M6 6l12 12' : 'M12 4v16m8-8H4'} />
+                </svg>
+                {mostrarForm ? 'Cancelar' : 'Añadir'}
+              </button>
+            </div>
+
+            {/* Formulario inline para hallazgo manual */}
+            {mostrarForm && (
+              <div className="mb-3 p-3 border border-[#007A33]/20 bg-[#007A33]/5 rounded-xl flex flex-col gap-2">
+                <select
+                  value={nComponente}
+                  onChange={e => setNComponente(e.target.value)}
+                  className="text-xs p-2 rounded-lg border border-slate-300 bg-white outline-none focus:border-[#007A33] focus:ring-1 focus:ring-[#007A33]"
+                >
+                  {COMPONENTES.map(c => (
+                    <option key={c} value={c}>{labelComp[c] ?? c}</option>
+                  ))}
+                </select>
+                <select
+                  value={nTipo}
+                  onChange={e => setNTipo(e.target.value)}
+                  className="text-xs p-2 rounded-lg border border-slate-300 bg-white outline-none focus:border-[#007A33] focus:ring-1 focus:ring-[#007A33]"
+                >
+                  {TIPOS.map(t => (
+                    <option key={t} value={t}>{labelTipo[t] ?? t}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={agregarHallazgo}
+                  className="bg-[#007A33] hover:bg-[#005c26] text-white text-xs font-bold py-2 rounded-lg transition-colors"
+                >
+                  Confirmar hallazgo
+                </button>
+              </div>
+            )}
+
+            {/* Lista de hallazgos */}
+            <div className="space-y-2">
+              {hallazgos.length === 0 ? (
+                <div className="flex flex-col items-center py-4 text-slate-400 gap-1">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-xs font-medium">Sin daños registrados</p>
+                </div>
+              ) : (
+                hallazgos.map((h, i) => (
+                  <div key={i}
+                    className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-xs font-bold text-slate-800 truncate">
+                        {labelComp[h.componente] ?? h.componente}
+                      </span>
+                      <span className={`shrink-0 text-[10px] font-bold border px-1.5 py-0.5 rounded-full ${colorTipo(h.tipo)}`}>
+                        {labelTipo[h.tipo] ?? h.tipo}
+                      </span>
+                      {h.esManual && (
+                        <span className="shrink-0 text-[9px] font-bold text-[#007A33] bg-[#007A33]/10 px-1.5 py-0.5 rounded-full">
+                          Manual
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => eliminarHallazgo(i)}
+                      className="shrink-0 ml-2 p-1 rounded-full text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                      title="Eliminar hallazgo"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Observaciones */}
+          <div>
+            <p className="text-xs font-bold text-slate-700 mb-1.5 uppercase tracking-wide">
+              Observaciones del inspector
             </p>
-            <button onClick={() => setMostrarForm(!mostrarForm)} className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2 py-1 rounded">
-              + Añadir manual
+            <textarea
+              value={observaciones}
+              onChange={e => setObservaciones(e.target.value)}
+              placeholder="Nota adicional (opcional)..."
+              className="w-full text-sm p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-[#007A33] focus:border-[#007A33] outline-none h-20 resize-none transition-colors"
+            />
+          </div>
+
+          {/* Botones de acción */}
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={onNuevaCaptura}
+              disabled={guardando}
+              className="flex-1 border-2 border-slate-200 hover:border-[#007A33] text-slate-600 hover:text-[#007A33] font-bold rounded-xl py-3.5 text-sm transition-colors disabled:opacity-50"
+            >
+              Re-capturar
+            </button>
+            <button
+              onClick={guardarYValidar}
+              disabled={guardando}
+              className="flex-1 bg-[#007A33] hover:bg-[#005c26] disabled:bg-slate-400 text-white font-extrabold rounded-xl py-3.5 text-sm transition-colors shadow-md flex items-center justify-center gap-2"
+            >
+              {guardando ? (
+                <>
+                  <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Guardando...
+                </>
+              ) : 'Validar y Guardar'}
             </button>
           </div>
 
-          <div className="space-y-2">
-            {hallazgos.map((h, i) => (
-              <div key={i} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                <div>
-                  <span className="text-xs font-bold text-slate-800">{h.componente}</span>
-                  <span className="text-[10px] font-bold border px-1.5 py-0.5 rounded ml-2 bg-amber-100 text-amber-800 border-amber-300">
-                    {h.tipo}
-                  </span>
-                  {h.esManual && <span className="ml-2 text-[9px] text-blue-600 font-bold uppercase">(Manual)</span>}
-                </div>
-                <button onClick={() => eliminarHallazgo(i)} className="text-red-400 hover:text-red-600 p-1 rounded-full transition-colors">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
-              </div>
-            ))}
-            {hallazgos.length === 0 && (
-              <p className="text-xs text-slate-400 italic text-center py-2">Ningún daño registrado.</p>
-            )}
-          </div>
-
-          {/* Formulario Inline para añadir hallazgo */}
-          {mostrarForm && (
-            <div className="mt-3 p-3 border border-blue-200 bg-blue-50 rounded-lg flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
-              <select value={nComponente} onChange={e => setNComponente(e.target.value)} className="text-xs p-1.5 rounded border border-slate-300 bg-white">
-                {componentesEnum.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <select value={nTipo} onChange={e => setNTipo(e.target.value)} className="text-xs p-1.5 rounded border border-slate-300 bg-white">
-                {tiposEnum.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <button onClick={agregarHallazgo} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1.5 rounded transition-colors">
-                Confirmar hallazgo
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="mb-5">
-          <p className="text-xs font-bold text-slate-600 mb-2 uppercase tracking-wide">Observaciones</p>
-          <textarea 
-            value={observaciones}
-            onChange={(e) => setObservaciones(e.target.value)}
-            placeholder="Nota del operador (opcional)..." 
-            className="w-full text-sm p-3 border border-slate-200 rounded-xl bg-slate-50 focus:ring-2 focus:ring-[#007A33] focus:outline-none h-20 resize-none"
-          />
-        </div>
-
-        {/* Acciones */}
-        <div className="flex gap-3">
-          <button onClick={onNuevaCaptura} disabled={guardando} className="flex-1 border-2 border-slate-200 hover:border-[#007A33] text-slate-600 hover:text-[#007A33] font-bold rounded-xl py-3 text-sm transition-colors">
-            Re-capturar
-          </button>
-          <button onClick={guardarYValidar} disabled={guardando} className="flex-1 bg-[#007A33] hover:bg-[#005c26] disabled:bg-slate-400 text-white font-bold rounded-xl py-3 text-sm transition-colors shadow-md">
-            {guardando ? 'Guardando...' : 'Validar y Guardar'}
-          </button>
         </div>
       </div>
     </div>
   );
-}
-
-// Calcula qué región del buffer nativo del video (video.videoWidth/videoHeight)
-// es la que realmente se ve en pantalla bajo `object-cover`.
-//
-// object-cover escala el video para llenar el contenedor y recorta el excedente
-// desde el centro. Si el video nativo (ej. 1920x1080) y el contenedor en pantalla
-// (ej. un celular en vertical) tienen aspect ratios distintos, una parte del
-// buffer queda fuera de vista. El marco/silueta que el usuario alinea vive en
-// coordenadas de PANTALLA (0-100%), así que para recortar el frame correcto hay
-// que mapear ese porcentaje a la región visible del buffer — no al buffer completo.
-function calcularAreaVisible(video: HTMLVideoElement, contenedor: HTMLElement) {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const cw = contenedor.clientWidth;
-  const ch = contenedor.clientHeight;
-
-  const escala        = Math.max(cw / vw, ch / vh);
-  const anchoVisible   = cw / escala;
-  const altoVisible    = ch / escala;
-  const offsetX        = (vw - anchoVisible) / 2;
-  const offsetY        = (vh - altoVisible) / 2;
-
-  return { offsetX, offsetY, anchoVisible, altoVisible };
 }
 
 // ── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
@@ -363,6 +546,40 @@ export default function EstadoPage() {
   const streamRef = useRef<MediaStream | null>(null);
   // Canvas oculto para capturar el frame del video
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const contenedorCamaraRef = useRef<HTMLDivElement>(null);
+  const [marcoRect, setMarcoRect] = useState<{ x: number; y: number; w: number; h: number }>({
+    x: 4, y: 25, w: 92, h: 50,
+  });
+
+  const actualizarMarco = useCallback(() => {
+    if (!contenedorCamaraRef.current) return;
+    const { clientWidth, clientHeight } = contenedorCamaraRef.current;
+    if (clientWidth > 0 && clientHeight > 0) {
+      setMarcoRect(obtenerMarco43(clientWidth, clientHeight));
+    }
+  }, []);
+
+  // ResizeObserver sobre el contenedor del video — se dispara en cualquier cambio
+  // de tamaño del elemento, incluyendo rotación de dispositivo, split-screen y
+  // cambios de barra de dirección en Safari iOS. Más fiable que window 'resize'
+  // que en móvil puede llegar antes de que el layout termine de recalcularse.
+  useEffect(() => {
+    if (fase !== 'camara') return;
+    const el = contenedorCamaraRef.current;
+    if (!el) return;
+
+    // Calcular inmediatamente al montar
+    actualizarMarco();
+
+    const observer = new ResizeObserver(() => {
+      // Usar requestAnimationFrame para leer el tamaño después de que el
+      // navegador termine el layout, evitando lecturas intermedias incorrectas
+      requestAnimationFrame(actualizarMarco);
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [fase, actualizarMarco]);
 
   const iniciarCamara = useCallback(async () => {
     try {
@@ -383,54 +600,30 @@ export default function EstadoPage() {
   }, []);
 
   useEffect(() => {
-    if (fase === 'camara') iniciarCamara();
-    else detenerCamara();
-    return () => detenerCamara();
-  }, [fase, iniciarCamara, detenerCamara]);
+    if (fase === 'camara') {
+      iniciarCamara();
+      const t = setTimeout(actualizarMarco, 60);
+      window.addEventListener('resize', actualizarMarco);
+      return () => {
+        clearTimeout(t);
+        window.removeEventListener('resize', actualizarMarco);
+        detenerCamara();
+      };
+    } else {
+      detenerCamara();
+    }
+  }, [fase, iniciarCamara, detenerCamara, actualizarMarco]);
 
-  // Captura el área del marco del video y la envía a la API.
-  // Solo se recorta la región dentro del marco, ignorando el fondo.
+  // Captura el área del marco del video con resolución estándar fija 1280×960 (4:3) y la envía a la API.
   const capturarYEnviar = useCallback(async () => {
     if (!videoRef.current || !vehiculo) return;
     setEnviando(true);
 
     try {
       const video = videoRef.current;
-      const contenedor = video.parentElement as HTMLElement | null;
+      const contenedor = contenedorCamaraRef.current;
 
-      // Convertir las coordenadas del marco (0-100, relativas a lo que se VE en
-      // pantalla) a píxeles del buffer nativo del video, tomando en cuenta el
-      // recorte que hace `object-cover` cuando el aspect ratio de la cámara no
-      // coincide con el del contenedor. Si por alguna razón no hay contenedor
-      // (no debería pasar), caemos al cálculo simple como último recurso.
-      const { rect } = marcoConfig[vistaActiva];
-      let cropX: number, cropY: number, cropW: number, cropH: number;
-
-      if (contenedor && video.videoWidth && video.videoHeight) {
-        const { offsetX, offsetY, anchoVisible, altoVisible } = calcularAreaVisible(video, contenedor);
-        cropX = Math.round(offsetX + (rect.x / 100) * anchoVisible);
-        cropY = Math.round(offsetY + (rect.y / 100) * altoVisible);
-        cropW = Math.round((rect.w / 100) * anchoVisible);
-        cropH = Math.round((rect.h / 100) * altoVisible);
-      } else {
-        const vw = video.videoWidth  || 1280;
-        const vh = video.videoHeight || 720;
-        cropX = Math.round((rect.x / 100) * vw);
-        cropY = Math.round((rect.y / 100) * vh);
-        cropW = Math.round((rect.w / 100) * vw);
-        cropH = Math.round((rect.h / 100) * vh);
-      }
-
-      // Canvas del tamaño exacto del recorte
-      const canvas = canvasRef.current ?? document.createElement('canvas');
-      canvas.width  = cropW;
-      canvas.height = cropH;
-      // Dibujar solo la región del marco — el fondo queda fuera
-      canvas.getContext('2d')!.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-      const blob = await new Promise<Blob>((res, rej) =>
-        canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob falló')), 'image/jpeg', 0.92)
-      );
+      const blob = await capturarFotoEstandar(video, contenedor, marcoRect, canvasRef.current);
 
       const form = new FormData();
       form.append('foto',       blob, 'captura.jpg');
@@ -527,39 +720,36 @@ export default function EstadoPage() {
         </div>
 
         {/* Área del video + overlay de imagen patrón */}
-        <div className="relative flex-1 overflow-hidden">
+        <div ref={contenedorCamaraRef} className="relative flex-1 overflow-hidden">
           <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
 
-          {/* Overlay: recorte exacto de la zona que el canvas capturará.
-              El operador debe llenar este encuadre con el vehículo real. */}
+          {/* Overlay: referencia exacta de la imagen patrón completa sin recortes */}
           {patrones[vistaActiva]
-            ? <OverlayPatron src={patrones[vistaActiva]!} vista={vistaActiva} />
+            ? <OverlayPatron src={patrones[vistaActiva]!} vista={vistaActiva} rect={marcoRect} />
             : null
           }
 
-          {/* Esquinas guía siempre visibles para delimitar el área de captura */}
-          {(() => {
-            const { rect: { x, y, w, h } } = marcoConfig[vistaActiva];
-            return (
-              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                {/* Oscurecer zona fuera del marco */}
-                <path fillRule="evenodd" fill="rgba(0,0,0,0.35)"
-                  d={`M0,0 H100 V100 H0 Z M${x},${y} H${x+w} V${y+h} H${x} Z`} />
-                {/* Esquinas verdes */}
-                {([[x,y,1,0,0,1],[x+w,y,-1,0,0,1],[x,y+h,1,0,0,-1],[x+w,y+h,-1,0,0,-1]] as number[][]).map(([cx,cy,dx1,,dx2,dy2],i) => (
-                  <g key={i} stroke="#00E05A" strokeWidth="1.5" strokeLinecap="round">
-                    <line x1={cx} y1={cy} x2={cx+dx1*7} y2={cy} />
-                    <line x1={cx} y1={cy} x2={cx+dx2*7} y2={cy+dy2*7} />
-                  </g>
-                ))}
-                {/* Instrucción */}
-                <text x="50" y="97" textAnchor="middle" fill="white" fontSize="3.2" fontWeight="bold"
-                  style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))' }}>
-                  {marcoConfig[vistaActiva].instruccion}
-                </text>
-              </svg>
-            );
-          })()}
+          {/* Esquinas guía siempre visibles para delimitar el área de captura con aspect-ratio 4:3 */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+            {/* Oscurecer zona fuera del marco */}
+            <path fillRule="evenodd" fill="rgba(0,0,0,0.38)"
+              d={`M0,0 H100 V100 H0 Z M${marcoRect.x},${marcoRect.y} H${marcoRect.x + marcoRect.w} V${marcoRect.y + marcoRect.h} H${marcoRect.x} Z`} />
+            {/* Esquinas verdes guía */}
+            {([[marcoRect.x, marcoRect.y, 1, 0, 0, 1],
+               [marcoRect.x + marcoRect.w, marcoRect.y, -1, 0, 0, 1],
+               [marcoRect.x, marcoRect.y + marcoRect.h, 1, 0, 0, -1],
+               [marcoRect.x + marcoRect.w, marcoRect.y + marcoRect.h, -1, 0, 0, -1]] as number[][]).map(([cx, cy, dx1, , dx2, dy2], i) => (
+              <g key={i} stroke="#00E05A" strokeWidth="1.5" strokeLinecap="round">
+                <line x1={cx} y1={cy} x2={cx + dx1 * 7} y2={cy} />
+                <line x1={cx} y1={cy} x2={cx + dx2 * 7} y2={cy + dy2 * 7} />
+              </g>
+            ))}
+            {/* Instrucción */}
+            <text x="50" y="97" textAnchor="middle" fill="white" fontSize="3.2" fontWeight="bold"
+              style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.8))' }}>
+              {INSTRUCCION_VISTA[vistaActiva]}
+            </text>
+          </svg>
 
           {/* Overlay de "enviando" */}
           {enviando && (

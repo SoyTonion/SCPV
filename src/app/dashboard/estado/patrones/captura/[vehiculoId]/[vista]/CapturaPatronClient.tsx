@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 
-type Vista = 'FRONTAL' | 'TRASERA' | 'LATERAL_IZQUIERDA' | 'LATERAL_DERECHA' | 'INTERIOR';
+import { marcoConfig, capturarFotoEstandar, obtenerMarco43, INSTRUCCION_VISTA, Vista } from '@/lib/inspeccion-config';
 
 const LABEL_VISTA: Record<Vista, string> = {
   FRONTAL:           'Frontal',
@@ -13,33 +13,6 @@ const LABEL_VISTA: Record<Vista, string> = {
   LATERAL_DERECHA:   'Lateral Derecha',
   INTERIOR:          'Interior',
 };
-
-// Mismo marcoConfig que en el módulo de inspección — encuadre idéntico
-const marcoConfig: Record<Vista, {
-  rect: { x: number; y: number; w: number; h: number };
-  instruccion: string;
-}> = {
-  FRONTAL:           { rect: { x: 5,  y: 8,  w: 90, h: 78 }, instruccion: 'Centra el frente del vehículo' },
-  TRASERA:           { rect: { x: 5,  y: 8,  w: 90, h: 78 }, instruccion: 'Centra la parte trasera del vehículo' },
-  LATERAL_IZQUIERDA: { rect: { x: 2,  y: 22, w: 96, h: 52 }, instruccion: 'Alinea el costado completo del vehículo' },
-  LATERAL_DERECHA:   { rect: { x: 2,  y: 22, w: 96, h: 52 }, instruccion: 'Alinea el costado completo del vehículo' },
-  INTERIOR:          { rect: { x: 8,  y: 12, w: 84, h: 72 }, instruccion: 'Enfoca el habitáculo' },
-};
-
-// Calcula la región visible del buffer nativo bajo object-cover
-function calcularAreaVisible(video: HTMLVideoElement, contenedor: HTMLElement) {
-  const vw = video.videoWidth,  vh = video.videoHeight;
-  const cw = contenedor.clientWidth, ch = contenedor.clientHeight;
-  const escala       = Math.max(cw / vw, ch / vh);
-  const anchoVisible = cw / escala;
-  const altoVisible  = ch / escala;
-  return {
-    offsetX:      (vw - anchoVisible) / 2,
-    offsetY:      (vh - altoVisible)  / 2,
-    anchoVisible,
-    altoVisible,
-  };
-}
 
 type Estado = 'camara' | 'previa' | 'guardando' | 'exito' | 'error';
 
@@ -56,13 +29,24 @@ export default function CapturaPatronClient({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const contenedorCamaraRef = useRef<HTMLDivElement>(null);
 
   const [estado,    setEstado]    = useState<Estado>('camara');
   const [previaUrl, setPreviaUrl] = useState<string | null>(null);
   const [blobCaptura, setBlobCaptura] = useState<Blob | null>(null);
   const [errorMsg,  setErrorMsg]  = useState('');
 
-  const { rect, instruccion } = marcoConfig[vista];
+  const [marcoRect, setMarcoRect] = useState<{ x: number; y: number; w: number; h: number }>({
+    x: 4, y: 25, w: 92, h: 50,
+  });
+
+  const actualizarMarco = useCallback(() => {
+    if (!contenedorCamaraRef.current) return;
+    const { clientWidth, clientHeight } = contenedorCamaraRef.current;
+    if (clientWidth > 0 && clientHeight > 0) {
+      setMarcoRect(obtenerMarco43(clientWidth, clientHeight));
+    }
+  }, []);
 
   // Inicia la cámara trasera
   const iniciarCamara = useCallback(async () => {
@@ -85,46 +69,37 @@ export default function CapturaPatronClient({
   }, []);
 
   useEffect(() => {
-    if (estado === 'camara') iniciarCamara();
-    else detenerCamara();
-    return () => detenerCamara();
-  }, [estado, iniciarCamara, detenerCamara]);
+    if (estado === 'camara') {
+      iniciarCamara();
+      const t = setTimeout(actualizarMarco, 60);
+      window.addEventListener('resize', actualizarMarco);
+      return () => {
+        clearTimeout(t);
+        window.removeEventListener('resize', actualizarMarco);
+        detenerCamara();
+      };
+    } else {
+      detenerCamara();
+    }
+  }, [estado, iniciarCamara, detenerCamara, actualizarMarco]);
 
-  // Captura el frame recortado al área del marco — idéntico al módulo de inspección
-  const capturar = useCallback(() => {
+  // Captura el frame recortado al área del marco con resolución estándar fija 1280×960 (4:3)
+  const capturar = useCallback(async () => {
     const video     = videoRef.current;
     const canvas    = canvasRef.current;
-    const contenedor = video?.parentElement as HTMLElement | null;
-    if (!video || !canvas || !contenedor) return;
+    const contenedor = contenedorCamaraRef.current;
+    if (!video || !contenedor) return;
 
-    const vw = video.videoWidth  || 1280;
-    const vh = video.videoHeight || 720;
-
-    let cropX: number, cropY: number, cropW: number, cropH: number;
-    if (video.videoWidth && video.videoHeight) {
-      const { offsetX, offsetY, anchoVisible, altoVisible } = calcularAreaVisible(video, contenedor);
-      cropX = Math.round(offsetX + (rect.x / 100) * anchoVisible);
-      cropY = Math.round(offsetY + (rect.y / 100) * altoVisible);
-      cropW = Math.round((rect.w / 100) * anchoVisible);
-      cropH = Math.round((rect.h / 100) * altoVisible);
-    } else {
-      cropX = Math.round((rect.x / 100) * vw);
-      cropY = Math.round((rect.y / 100) * vh);
-      cropW = Math.round((rect.w / 100) * vw);
-      cropH = Math.round((rect.h / 100) * vh);
-    }
-
-    canvas.width  = cropW;
-    canvas.height = cropH;
-    canvas.getContext('2d')!.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-    canvas.toBlob(blob => {
-      if (!blob) return;
+    try {
+      const blob = await capturarFotoEstandar(video, contenedor, marcoRect, canvas);
       setBlobCaptura(blob);
       setPreviaUrl(URL.createObjectURL(blob));
       setEstado('previa');
-    }, 'image/jpeg', 0.95);
-  }, [rect]);
+    } catch {
+      setEstado('error');
+      setErrorMsg('Error al procesar la captura de la imagen.');
+    }
+  }, [marcoRect]);
 
   // Guarda la captura como imagen patrón
   const guardarPatron = useCallback(async () => {
@@ -291,8 +266,8 @@ export default function CapturaPatronClient({
         <div className="w-16" />{/* spacer */}
       </div>
 
-      {/* Área de video + marcos */}
-      <div className="relative flex-1 overflow-hidden">
+      {/* Área de video + marcos con proporción 4:3 */}
+      <div ref={contenedorCamaraRef} className="relative flex-1 overflow-hidden">
         <video
           ref={videoRef}
           autoPlay playsInline muted
@@ -309,19 +284,19 @@ export default function CapturaPatronClient({
           <path
             fillRule="evenodd"
             fill="rgba(0,0,0,0.40)"
-            d={`M0,0 H100 V100 H0 Z M${rect.x},${rect.y} H${rect.x+rect.w} V${rect.y+rect.h} H${rect.x} Z`}
+            d={`M0,0 H100 V100 H0 Z M${marcoRect.x},${marcoRect.y} H${marcoRect.x + marcoRect.w} V${marcoRect.y + marcoRect.h} H${marcoRect.x} Z`}
           />
           {/* Borde punteado */}
           <rect
-            x={rect.x} y={rect.y} width={rect.w} height={rect.h}
+            x={marcoRect.x} y={marcoRect.y} width={marcoRect.w} height={marcoRect.h}
             fill="none" stroke="white" strokeWidth="0.4" strokeDasharray="2.5 1.5"
           />
           {/* Esquinas verdes */}
           {([
-            [rect.x,          rect.y,          1,  0,  0,  1],
-            [rect.x + rect.w, rect.y,         -1,  0,  0,  1],
-            [rect.x,          rect.y + rect.h,  1,  0,  0, -1],
-            [rect.x + rect.w, rect.y + rect.h, -1,  0,  0, -1],
+            [marcoRect.x,               marcoRect.y,               1,  0,  0,  1],
+            [marcoRect.x + marcoRect.w, marcoRect.y,              -1,  0,  0,  1],
+            [marcoRect.x,               marcoRect.y + marcoRect.h,  1,  0,  0, -1],
+            [marcoRect.x + marcoRect.w, marcoRect.y + marcoRect.h, -1,  0,  0, -1],
           ] as number[][]).map(([cx, cy, dx1, , dx2, dy2], i) => (
             <g key={i} stroke="#00E05A" strokeWidth="1.5" strokeLinecap="round">
               <line x1={cx} y1={cy} x2={cx + dx1 * 7} y2={cy} />
@@ -331,7 +306,7 @@ export default function CapturaPatronClient({
           {/* Instrucción */}
           <text x="50" y="97" textAnchor="middle" fill="white" fontSize="3.2" fontWeight="bold"
             style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.9))' }}>
-            {instruccion}
+            {INSTRUCCION_VISTA[vista]}
           </text>
         </svg>
 
