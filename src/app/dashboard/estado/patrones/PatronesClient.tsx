@@ -90,12 +90,11 @@ function TarjetaVista({
       {/* Imagen o placeholder */}
       <div className="relative aspect-video bg-slate-100 flex items-center justify-center">
         {imagen ? (
-          <Image
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
             src={imagen.rutaImagen}
             alt={LABEL_VISTA[vista]}
-            fill
-            className="object-cover"
-            sizes="(max-width: 768px) 50vw, 25vw"
+            className="absolute inset-0 w-full h-full object-cover"
           />
         ) : (
           <div className="flex flex-col items-center gap-1 text-slate-300">
