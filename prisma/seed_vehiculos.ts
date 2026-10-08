@@ -48,7 +48,7 @@ const detectarSeparador = (filePath: string): string => {
 async function main() {
   console.log('🚗 Iniciando la lectura del archivo vehiculos.csv...');
 
-  const csvFilePath = path.join(__dirname, 'vehiculos.csv');
+  const csvFilePath = path.join(process.cwd(), 'prisma', 'vehiculos.csv');
 
   if (!fs.existsSync(csvFilePath)) {
     console.error(`❌ No se encontró el archivo en la ruta: ${csvFilePath}`);
@@ -135,6 +135,19 @@ async function main() {
           // Construir QR (si no hay económico ni placas, usar un número aleatorio)
           const qrGenerado = `CFE-QR-${economico || placas || Math.floor(Math.random() * 100000)}`;
 
+          // Determinar la capacidad y límite mensual según el lineamiento CFE
+          const tipoVehiculoMapped = mapearTipo(tipo);
+          let capacidadCalculada = 45.0;
+          let limiteCalculado = 280;
+
+          switch(tipoVehiculoMapped) {
+            case TipoVehiculo.SED: capacidadCalculada = 35; limiteCalculado = 280; break;
+            case TipoVehiculo.PIK: capacidadCalculada = 70; limiteCalculado = 500; break;
+            case TipoVehiculo.CEE: capacidadCalculada = 120; limiteCalculado = 600; break;
+            case TipoVehiculo.CAM: capacidadCalculada = 290; limiteCalculado = 800; break;
+            case TipoVehiculo.MON: capacidadCalculada = 40; limiteCalculado = 100; break;
+          }
+
           await prisma.vehiculo.create({
             data: {
               economico: economico || null,
@@ -146,14 +159,16 @@ async function main() {
               marcaVehiculo: marca || 'CHEVROLET',
               submarcaVehiculo: submarca || 'AVEO',
               modelo: parseInt(modelo) || 2020,
-              tipoVehiculo: mapearTipo(tipo),
+              tipoVehiculo: tipoVehiculoMapped,
               tipoCombustible: combustible.toUpperCase().includes('DIESEL')
                 ? TipoCombustible.DIESEL
                 : TipoCombustible.GASOLINA,
               arrendadora: mapearArrendadora(arrendadora),
               campoClasificacion: clasificacion || '|',
               responsable: responsable || 'SIN ASIGNAR',
-              capacidadTanque: 45.0,
+              capacidadTanque: capacidadCalculada,
+              limiteMensualLitros: limiteCalculado,
+              cargasMaximasDia: 2,
               qrToken: qrGenerado,
             },
           });

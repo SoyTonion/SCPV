@@ -140,83 +140,14 @@ async function main() {
   console.log('✅ Relaciones usuario-departamento creadas');
 
   // ============================================================
-  // VEHÍCULOS
+  // VEHÍCULOS (Usando los reales importados desde Vehiculos.csv)
   // ============================================================
-  const vehiculosData = [
-    {
-      economico: 'ECO-001',
-      numeroSerie: '1HGCM82633A004352',
-      tipoPropiedad: TipoPropiedadVehiculo.PROPIO,
-      placas: 'ABC1234',
-      marcaVehiculo: 'CHEVROLET',
-      submarcaVehiculo: 'AVEO',
-      modelo: 2022,
-      tipoVehiculo: TipoVehiculo.SED,
-      tipoCombustible: TipoCombustible.GASOLINA,
-      arrendadora: Arrendadora.NA,
-      departamentoId: departamentos[0].id,
-    },
-    {
-      economico: 'ECO-002',
-      numeroSerie: '3N1AB7AP0FY289456',
-      tipoPropiedad: TipoPropiedadVehiculo.ARRENDADO,
-      placas: 'XYZ9876',
-      marcaVehiculo: 'NISSAN',
-      submarcaVehiculo: 'NP300',
-      modelo: 2021,
-      tipoVehiculo: TipoVehiculo.PIK,
-      tipoCombustible: TipoCombustible.DIESEL,
-      arrendadora: Arrendadora.JETVAN,
-      departamentoId: departamentos[4].id,
-    },
-    {
-      economico: 'ECO-003',
-      numeroSerie: '9BWHE21JX24060960',
-      tipoPropiedad: TipoPropiedadVehiculo.ARRENDADO,
-      placas: 'JKL4567',
-      marcaVehiculo: 'FREIGHTLINER',
-      submarcaVehiculo: 'M2 106',
-      modelo: 2019,
-      tipoVehiculo: TipoVehiculo.CAM,
-      tipoCombustible: TipoCombustible.DIESEL,
-      arrendadora: Arrendadora.LUMO,
-      departamentoId: departamentos[0].id,
-    },
-    {
-      economico: 'ECO-004',
-      numeroSerie: '2G1WT58K389123456',
-      tipoPropiedad: TipoPropiedadVehiculo.PROPIO,
-      placas: 'MNO7890',
-      marcaVehiculo: 'CHEVROLET',
-      submarcaVehiculo: 'AVEO',
-      modelo: 2023,
-      tipoVehiculo: TipoVehiculo.SED,
-      tipoCombustible: TipoCombustible.GASOLINA,
-      arrendadora: Arrendadora.NA,
-      departamentoId: departamentos[1].id,
-    },
-    {
-      economico: 'ECO-005',
-      numeroSerie: 'JH2SC5407NM100234',
-      tipoPropiedad: TipoPropiedadVehiculo.PROPIO,
-      placas: 'PQR3456',
-      marcaVehiculo: 'HONDA',
-      submarcaVehiculo: 'CB190',
-      modelo: 2020,
-      tipoVehiculo: TipoVehiculo.MON,
-      tipoCombustible: TipoCombustible.GASOLINA,
-      arrendadora: Arrendadora.NA,
-      departamentoId: departamentos[3].id,
-      vehiculoPernocta: false,
-    },
-  ];
-
-  const vehiculos = [];
-  for (const v of vehiculosData) {
-    const vehiculo = await prisma.vehiculo.create({ data: v });
-    vehiculos.push(vehiculo);
+  const vehiculos = await prisma.vehiculo.findMany({ take: 5 });
+  if (vehiculos.length < 5) {
+    console.error('⚠️ No se encontraron suficientes vehículos reales. Por favor corre seed_vehiculos.ts primero.');
+    return;
   }
-  console.log('✅ Vehículos creados');
+  console.log(`✅ Usando vehículos reales para la demo. El vehículo para la prueba de gasolina será: ${vehiculos[0].economico}`);
 
   // ============================================================
   // RONDINES + ESCANEOS
@@ -308,6 +239,35 @@ async function main() {
     },
   });
   console.log('✅ Autorizaciones de pernocta creadas');
+
+  // ============================================================
+  // HISTORIAL DE COMBUSTIBLE (DEMO AL LÍMITE)
+  // ============================================================
+  await prisma.registroCombustible.createMany({
+    data: [
+      {
+        // Dejamos este carro a exactamente 10 litros de bloquearse
+        vehiculoId: vehiculos[0].id,
+        usuarioId: guardias[0].id,
+        fechaCarga: ayer,
+        kilometraje: 15200,
+        litrosCargados: Number(vehiculos[0].limiteMensualLitros || 280) - 10,
+        costoTotal: 6500.00,
+        rutaEvidencia: '/uploads/evidencia-1.jpg',
+      },
+      {
+        // El ECO-002 (Pickup) con límite de 500L, le ponemos consumo normal.
+        vehiculoId: vehiculos[1].id,
+        usuarioId: supervisor.id,
+        fechaCarga: ayer,
+        kilometraje: 42100,
+        litrosCargados: 65,
+        costoTotal: 1560.00,
+        rutaEvidencia: '/uploads/evidencia-2.jpg',
+      }
+    ]
+  });
+  console.log('✅ Historial de combustible creado para DEMO');
 
   // ============================================================
   // CONFIGURACIÓN
