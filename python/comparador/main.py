@@ -20,7 +20,7 @@ Score compuesto de 3 componentes (mismo vehículo sin daños debe dar >80%):
 
 Puerto: 5001
 """
-
+from _future_ import annotations
 import os
 import base64
 import traceback
