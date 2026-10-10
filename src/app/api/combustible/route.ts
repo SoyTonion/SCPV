@@ -26,7 +26,17 @@ export async function POST(request: Request) {
     const importe = formData.get('importe') as string;
     const esExcepcionStr = formData.get('esExcepcion') as string;
     const esExcepcion = esExcepcionStr === 'true';
-    const justificacion = formData.get('justificacion') as string | null;
+    const falsoPositivoStr = formData.get('falsoPositivo') as string;
+    const falsoPositivo = falsoPositivoStr === 'true';
+    
+    // Si el chofer modifica el OCR, forzamos que se marque como excepción para que la Secretaria lo revise
+    const requiereRevisionManual = esExcepcion || falsoPositivo;
+    
+    const justificacionOriginal = formData.get('justificacion') as string | null;
+    const justificacion = falsoPositivo 
+      ? `[REVISIÓN REQUERIDA POR IA] Los valores extraídos por la Inteligencia Artificial fueron modificados manualmente por el chofer. ${justificacionOriginal || ''}`
+      : justificacionOriginal;
+
     const preautorizacionId = formData.get('preautorizacionId') as string | null;
     
     // Evidencia puede venir como archivo File o texto base64, o nada
@@ -87,7 +97,7 @@ export async function POST(request: Request) {
     }
 
     // 6. Validación Estricta de Preautorización
-    let estadoAprobacion: EstadoAprobacionCombustible = esExcepcion ? 'PENDIENTE_REVISION' : 'APROBADA';
+    let estadoAprobacion: EstadoAprobacionCombustible = requiereRevisionManual ? 'PENDIENTE_REVISION' : 'APROBADA';
 
     if (preautorizacionId) {
       const preauth = await prisma.preautorizacionCombustible.findUnique({
@@ -125,7 +135,7 @@ export async function POST(request: Request) {
           litrosCargados: litrosSolicitados,
           costoTotal: costoTotal,
           rutaEvidencia: rutaEvidenciaFinal,
-          esExcepcion: esExcepcion,
+          esExcepcion: requiereRevisionManual,
           justificacion: justificacion || null,
           estadoAprobacion: estadoAprobacion,
           preautorizacionId: preautorizacionId || null

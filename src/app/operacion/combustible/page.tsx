@@ -13,17 +13,8 @@ interface VehiculoData {
   capacidadTanque: number | null; 
   limiteMensualLitros: number | null;
   litrosConsumidosMes: number;
-  // 🆕 [NUEVO CFE] Para leer el historial
   historialReciente?: { id: string, litros: number, estado: string, fecha: string }[];
   preautorizacionActiva?: { id: string, litros: number, horaFin: string } | null;
-}
-
-interface ErroresValidacion {
-  vehiculo?: string;
-  kilometraje?: string;
-  litros?: string;
-  importe?: string;
-  justificacion?: string;
 }
 
 interface Toast {
@@ -31,27 +22,44 @@ interface Toast {
   mensaje: string;
 }
 
+type FaseOperacion = 'IDENTIFICACION' | 'SOLICITUD' | 'ESPERANDO_APROBACION' | 'CARGA_Y_COMPROBACION' | 'FINALIZADO';
+
 export default function CombustibleClient() {
+  const [fase, setFase] = useState<FaseOperacion>('IDENTIFICACION');
+  const [toast, setToast] = useState<Toast | null>(null);
+
+  // Datos del Vehículo
   const [vehiculoData, setVehiculoData] = useState<VehiculoData | null>(null);
   const [vehiculoId, setVehiculoId] = useState('');
-  const [buscandoQR, setBuscandoQR] = useState(false);
   const [mostrarEscaner, setMostrarEscaner] = useState(false);
+  const [buscandoQR, setBuscandoQR] = useState(false);
 
-  const [kilometraje, setKilometraje] = useState('');
-  const [litros, setLitros] = useState('');
-  const [importe, setImporte] = useState('');
-  const [fotoTicket, setFotoTicket] = useState<File | null>(null);
-  
+  // Fase de Solicitud (Antes de Cargar)
+  const [litrosSolicitados, setLitrosSolicitados] = useState('');
   const [requiereJustificacion, setRequiereJustificacion] = useState(false);
   const [justificacion, setJustificacion] = useState('');
 
-  const [loading, setLoading] = useState(false);
-  const [exito, setExito] = useState(false);
+  // Fase de Comprobación (Después de Cargar - Evidencia OCR)
+  const [fotoTicket, setFotoTicket] = useState<File | null>(null);
+  const [fotoOdometro, setFotoOdometro] = useState<File | null>(null);
+  const [procesandoTicket, setProcesandoTicket] = useState(false);
+  const [procesandoOdometro, setProcesandoOdometro] = useState(false);
+  const [capturaManual, setCapturaManual] = useState(false);
+  const [mostrarModalConfirmacion, setMostrarModalConfirmacion] = useState(false);
 
-  const [errores, setErrores] = useState<ErroresValidacion>({});
-  const [mostrarConfirmacion, setMostrarConfirmacion] = useState(false);
-  const [toast, setToast] = useState<Toast | null>(null);
-  const [intentoEnvio, setIntentoEnvio] = useState(false);
+  // Datos extraídos por la IA (o manuales)
+  const [litrosExtraidos, setLitrosExtraidos] = useState('');
+  const [importeExtraido, setImporteExtraido] = useState('');
+  const [kilometrajeExtraido, setKilometrajeExtraido] = useState('');
+
+  // Valores originales tal cual los extrajo la IA (para auditoría)
+  const [ocrLitros, setOcrLitros] = useState('');
+  const [ocrImporte, setOcrImporte] = useState('');
+  const [ocrOdometro, setOcrOdometro] = useState('');
+
+  // Estados generales
+  const [loading, setLoading] = useState(false);
+  const [errores, setErrores] = useState<Record<string, string>>({});
 
   const [fechaActual, setFechaActual] = useState(new Date());
 
@@ -62,141 +70,12 @@ export default function CombustibleClient() {
     return () => clearInterval(intervalo);
   }, []);
 
-  const fechaFormateada = fechaActual.toLocaleDateString('es-MX', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  });
-  const horaFormateada = fechaActual.toLocaleTimeString('es-MX', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-
-  const precioPorLitro = useMemo(() => {
-    const litrosNum = parseFloat(litros);
-    const importeNum = parseFloat(importe);
-    if (litrosNum > 0 && importeNum > 0) {
-      return (importeNum / litrosNum).toFixed(2);
-    }
-    return null;
-  }, [litros, importe]);
-
-  const progresoMensual = useMemo(() => {
-    if (!vehiculoData || !vehiculoData.limiteMensualLitros) return null;
-    const consumidos = vehiculoData.litrosConsumidosMes;
-    const limite = vehiculoData.limiteMensualLitros;
-    
-    const porcentaje = Math.min((consumidos / limite) * 100, 100);
-    const litrosIntento = parseFloat(litros) || 0;
-    const porcentajeProyectado = Math.min(((consumidos + litrosIntento) / limite) * 100, 100);
-    
-    let estadoTexto = '✅ Estado: Normal';
-    let estadoColor = 'text-[#007A33]'; 
-
-    const totalCalculado = consumidos + litrosIntento;
-
-    if (totalCalculado > limite) {
-      estadoTexto = '🚨 Límite Excedido';
-      estadoColor = 'text-red-500';
-    } else if (porcentajeProyectado >= 90) {
-      estadoTexto = '⚠️ Nivel Crítico';
-      estadoColor = 'text-orange-500';
-    } else if (porcentajeProyectado >= 75) {
-      estadoTexto = '⚠️ Consumo Alto';
-      estadoColor = 'text-yellow-600';
-    }
-
-    return {
-      porcentaje,
-      porcentajeProyectado,
-      consumidos,
-      limite,
-      disponibles: Math.max(limite - consumidos, 0).toFixed(2),
-      estadoTexto,
-      estadoColor
-    };
-  }, [vehiculoData, litros]);
-
-
-  const pasoActual = () => {
-    if (!vehiculoData) return 1;
-    if (!kilometraje || !litros || !importe) return 2;
-    return 3;
-  };
-
-  const pasos = [
-    { numero: 1, label: 'Vehículo', completado: !!vehiculoData },
-    { numero: 2, label: 'Carga', completado: !!(kilometraje && litros && importe) },
-    { numero: 3, label: 'Evidencia (opc.)', completado: false },
-  ];
-
   const mostrarToast = useCallback((tipo: Toast['tipo'], mensaje: string) => {
     setToast({ tipo, mensaje });
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  const validarCampos = useCallback((): boolean => {
-    const nuevosErrores: ErroresValidacion = {};
-    let necesitaExcepcion = false;
-
-    if (!vehiculoData) {
-      nuevosErrores.vehiculo = 'Debes escanear el QR del vehículo primero.';
-    }
-
-    const numKilometraje = Number(kilometraje);
-    if (!kilometraje.trim()) {
-      nuevosErrores.kilometraje = 'El kilometraje es requerido.';
-    } else if (numKilometraje <= 0) {
-      nuevosErrores.kilometraje = 'El kilometraje debe ser mayor a 0.';
-    } else if (numKilometraje > 2000000) { 
-      nuevosErrores.kilometraje = 'El kilometraje ingresado es irreal (máximo 2,000,000 km).';
-    } else if (vehiculoData && numKilometraje <= vehiculoData.kilometrajeActual) {
-      nuevosErrores.kilometraje = `Error: Debe ser mayor al último registrado (${vehiculoData.kilometrajeActual} km).`;
-    }
-
-    const numLitros = Number(litros);
-    if (!litros.trim()) {
-      nuevosErrores.litros = 'Los litros son requeridos.';
-    } else if (numLitros <= 0) {
-      nuevosErrores.litros = 'Los litros deben ser mayores a 0.';
-    } else if (vehiculoData) {
-      if (vehiculoData.capacidadTanque && numLitros > vehiculoData.capacidadTanque) {
-        nuevosErrores.litros = `Error: Supera la capacidad del tanque (${vehiculoData.capacidadTanque} L).`;
-      } 
-      else if (vehiculoData.preautorizacionActiva) {
-        if (numLitros > vehiculoData.preautorizacionActiva.litros) {
-          nuevosErrores.litros = `Límite de preautorización excedido. (Máximo: ${vehiculoData.preautorizacionActiva.litros} L).`;
-        }
-      }
-      else if (vehiculoData.limiteMensualLitros) {
-        const nuevoTotalMes = vehiculoData.litrosConsumidosMes + numLitros;
-        if (nuevoTotalMes > vehiculoData.limiteMensualLitros) {
-          necesitaExcepcion = true;
-          const litrosDisponibles = vehiculoData.limiteMensualLitros - vehiculoData.litrosConsumidosMes;
-          const disponiblesFormateado = litrosDisponibles > 0 ? litrosDisponibles.toFixed(2) : "0";
-          if (!justificacion.trim()) {
-             nuevosErrores.litros = `Límite excedido. (Disponibles: ${disponiblesFormateado} L). Se requiere justificación.`;
-             nuevosErrores.justificacion = 'Debes escribir el motivo de esta carga extraordinaria.';
-          }
-        }
-      }
-    }
-
-    setRequiereJustificacion(necesitaExcepcion);
-
-    if (!importe.trim()) {
-      nuevosErrores.importe = 'El importe es requerido.';
-    } else if (Number(importe) <= 0) {
-      nuevosErrores.importe = 'El importe debe ser mayor a 0.';
-    }
-
-    setErrores(nuevosErrores);
-    return Object.keys(nuevosErrores).length === 0;
-  }, [vehiculoData, kilometraje, litros, importe, justificacion]);
-
-  const limpiarError = (campo: keyof ErroresValidacion) => {
+  const limpiarError = (campo: string) => {
     setErrores(prev => {
       const nuevo = { ...prev };
       delete nuevo[campo];
@@ -204,38 +83,31 @@ export default function CombustibleClient() {
     });
   };
 
-  const handleKilometrajeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setKilometraje(e.target.value);
-    limpiarError('kilometraje');
-  };
-  
-  const handleLitrosChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLitros(e.target.value);
-    limpiarError('litros');
-    if (vehiculoData) {
-      if (vehiculoData.preautorizacionActiva) {
-        // Preautorizacion exime la justificacion
-        setRequiereJustificacion(false);
-        setJustificacion('');
-        limpiarError('justificacion');
-      } else if (vehiculoData.limiteMensualLitros) {
-        const numLitros = Number(e.target.value);
-        if (vehiculoData.litrosConsumidosMes + numLitros > vehiculoData.limiteMensualLitros) {
-            setRequiereJustificacion(true);
-        } else {
-            setRequiereJustificacion(false);
-            setJustificacion('');
-            limpiarError('justificacion');
-        }
-      }
-    }
-  };
-  
-  const handleImporteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setImporte(e.target.value);
-    limpiarError('importe');
-  };
+  const progresoMensual = useMemo(() => {
+    if (!vehiculoData || !vehiculoData.limiteMensualLitros) return null;
+    const consumidos = vehiculoData.litrosConsumidosMes;
+    const limite = vehiculoData.limiteMensualLitros;
+    
+    const porcentaje = Math.min((consumidos / limite) * 100, 100);
+    const litrosIntento = parseFloat(litrosSolicitados) || 0;
+    const porcentajeProyectado = Math.min(((consumidos + litrosIntento) / limite) * 100, 100);
+    
+    let estadoColor = 'text-[#007A33]'; 
+    if (consumidos + litrosIntento > limite) estadoColor = 'text-red-500';
 
+    return {
+      porcentaje,
+      porcentajeProyectado,
+      consumidos,
+      limite,
+      disponibles: Math.max(limite - consumidos, 0).toFixed(2),
+      estadoColor
+    };
+  }, [vehiculoData, litrosSolicitados]);
+
+  // ==========================================
+  // FASE 1: Identificación (Escáner QR)
+  // ==========================================
   const procesarQRReal = async (qrEscaneado: string) => {
     setBuscandoQR(true);
     try {
@@ -253,22 +125,18 @@ export default function CombustibleClient() {
             ((datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : 0) + parseFloat(datosVehiculo.preautorizacionActiva.litros)) : 
             (datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : null),
           litrosConsumidosMes: datosVehiculo.litrosConsumidosMes || 0,
-          // 🆕 [NUEVO CFE] Guardamos el historial y preautorizacion
           historialReciente: datosVehiculo.historialReciente || [],
           preautorizacionActiva: datosVehiculo.preautorizacionActiva || null,
         });
         setVehiculoId(datosVehiculo.id);
         limpiarError('vehiculo');
-        mostrarToast('exito', 'Vehículo identificado correctamente.');
+        setFase('SOLICITUD'); // Avanzamos a fase 2
+        mostrarToast('exito', 'Vehículo identificado. Solicita el combustible.');
       } else {
-        setVehiculoData(null);
-        setVehiculoId('');
-        setErrores(prev => ({ ...prev, vehiculo: 'Código QR inválido o vehículo no encontrado.' }));
         mostrarToast('error', 'Código QR inválido o vehículo no encontrado.');
       }
     } catch (error) {
-      console.error("Error al buscar el vehículo:", error);
-      setErrores(prev => ({ ...prev, vehiculo: 'Error de conexión con el servidor.' }));
+      console.error(error);
       mostrarToast('error', 'Error de conexión con el servidor.');
     } finally {
       setBuscandoQR(false);
@@ -276,13 +144,8 @@ export default function CombustibleClient() {
   };
 
   useEffect(() => {
-    if (mostrarEscaner) {
-      const scanner = new Html5QrcodeScanner(
-        "lector-qr",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        false
-      );
-
+    if (mostrarEscaner && fase === 'IDENTIFICACION') {
+      const scanner = new Html5QrcodeScanner("lector-qr", { fps: 10, qrbox: { width: 250, height: 250 } }, false);
       scanner.render(
         async (textoEscaneado) => {
           scanner.clear();
@@ -291,85 +154,175 @@ export default function CombustibleClient() {
         },
         () => {}
       );
-
-      return () => {
-        scanner.clear().catch(error => console.error("Fallo al limpiar escáner", error));
-      };
+      return () => { scanner.clear().catch(e => console.error(e)); };
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mostrarEscaner]);
+  }, [mostrarEscaner, fase]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIntentoEnvio(true);
+  // ==========================================
+  // FASE 2: Solicitud de Combustible
+  // ==========================================
+  const handleLitrosSolicitados = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setLitrosSolicitados(val);
+    limpiarError('litrosSolicitados');
 
-    if (!validarCampos()) {
-      mostrarToast('error', 'Hay errores en el formulario. Revisa los campos marcados.');
+    if (vehiculoData && vehiculoData.limiteMensualLitros) {
+      const numLitros = parseFloat(val) || 0;
+      if (vehiculoData.litrosConsumidosMes + numLitros > vehiculoData.limiteMensualLitros) {
+        setRequiereJustificacion(true);
+      } else {
+        setRequiereJustificacion(false);
+        setJustificacion('');
+        limpiarError('justificacion');
+      }
+    }
+  };
+
+  const enviarSolicitud = () => {
+    const num = parseFloat(litrosSolicitados);
+    if (!num || num <= 0) {
+      setErrores({ litrosSolicitados: 'Ingresa una cantidad válida' });
+      return;
+    }
+    if (requiereJustificacion && !justificacion.trim()) {
+      setErrores({ justificacion: 'Debes escribir el motivo del excedente' });
       return;
     }
 
-    setMostrarConfirmacion(true);
+    if (requiereJustificacion) {
+      // Si se pasa del límite, lo mandamos a "Esperando Aprobación" del Administrador
+      setFase('ESPERANDO_APROBACION');
+      
+      // Simulación de que el Admin lo aprueba en 4 segundos para la Demo
+      setTimeout(() => {
+        setFase('CARGA_Y_COMPROBACION');
+        mostrarToast('exito', 'El Administrador ha APROBADO la solicitud extraordinaria.');
+      }, 4000);
+    } else {
+      // Si está dentro del límite, pasa directo
+      setFase('CARGA_Y_COMPROBACION');
+    }
   };
 
-  const confirmarEnvio = async () => {
-    setMostrarConfirmacion(false);
-    setLoading(true);
+  // ==========================================
+  // FASE 3/4: Comprobación (Carga y OCR)
+  // ==========================================
+  const simularOCRTicket = async (file: File) => {
+    setProcesandoTicket(true);
+    setFotoTicket(file);
+    try {
+      // Mandamos la foto físicamente al microservicio de Python (FastAPI)
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      // Ahora le pegamos a nuestro propio puente de Next.js
+      const res = await fetch('/api/ocr-ticket', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!res.ok) throw new Error('Error en el microservicio de OCR');
+      
+      const data = await res.json();
+      
+      if (data.exito) {
+        if (data.litros) {
+          setLitrosExtraidos(String(data.litros));
+          setOcrLitros(String(data.litros));
+        }
+        if (data.total) {
+          setImporteExtraido(String(data.total));
+          setOcrImporte(String(data.total));
+        }
+        limpiarError('ticket');
+        mostrarToast('exito', 'Ticket leído por Inteligencia Artificial.');
+      } else {
+        mostrarToast('error', data.mensaje || 'No se pudo leer el ticket.');
+        setCapturaManual(true); // Activar captura manual si la IA falla
+      }
+    } catch (e) {
+      console.error(e);
+      mostrarToast('error', 'Error de conexión con el OCR. Asegúrate de tener Python corriendo.');
+      setCapturaManual(true);
+    } finally {
+      setProcesandoTicket(false);
+    }
+  };
 
+  const simularOCROdometro = async (file: File) => {
+    setProcesandoOdometro(true);
+    setFotoOdometro(file);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch('/api/ocr-odometro', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!res.ok) throw new Error('Error en OCR Odómetro');
+      
+      const data = await res.json();
+      
+      if (data.exito && data.odometro) {
+        setKilometrajeExtraido(String(data.odometro));
+        setOcrOdometro(String(data.odometro));
+        limpiarError('odometro');
+        mostrarToast('exito', 'Kilometraje extraído con IA.');
+      } else {
+        mostrarToast('error', data.mensaje || 'No se pudo leer el kilometraje del tablero.');
+      }
+    } catch (e) {
+      console.error(e);
+      mostrarToast('error', 'Error al leer el odómetro.');
+    } finally {
+      setProcesandoOdometro(false);
+    }
+  };
+
+  const finalizarComprobacion = async () => {
+    setMostrarModalConfirmacion(false);
+    
+    // Aquí iría la validación para mandar "Falso Positivo" a la Secretaria.
+    // 1. Si los litros sobrepasan los solicitados
+    // 2. Si el chofer tecleó algo diferente a lo que leyó la IA
+    const fueModificadoPorChofer = 
+      (ocrLitros !== '' && litrosExtraidos !== ocrLitros) || 
+      (ocrImporte !== '' && importeExtraido !== ocrImporte) || 
+      (ocrOdometro !== '' && kilometrajeExtraido !== ocrOdometro);
+
+    const falsoPositivo = fueModificadoPorChofer || (parseFloat(litrosExtraidos) > parseFloat(litrosSolicitados));
+
+    setLoading(true);
     try {
       const formData = new FormData();
       formData.append('vehiculoId', vehiculoId);
-      formData.append('kilometraje', kilometraje);
-      formData.append('litros', litros);
-      formData.append('importe', importe);
+      formData.append('kilometraje', kilometrajeExtraido);
+      formData.append('litros', litrosExtraidos);
+      formData.append('importe', importeExtraido);
       formData.append('esExcepcion', String(requiereJustificacion));
+      formData.append('falsoPositivo', String(falsoPositivo)); // Para la bandeja de la secretaria
       
-      if (requiereJustificacion && justificacion) {
-        formData.append('justificacion', justificacion);
-      }
-      if (vehiculoData?.preautorizacionActiva?.id) {
-        formData.append('preautorizacionId', vehiculoData.preautorizacionActiva.id);
-      }
-      if (fotoTicket) {
-        formData.append('evidencia', fotoTicket);
-      }
+      if (justificacion) formData.append('justificacion', justificacion);
+      if (fotoTicket) formData.append('evidencia', fotoTicket);
+      if (fotoOdometro) formData.append('evidenciaOdometro', fotoOdometro);
 
       const respuesta = await fetch('/api/combustible', {
         method: 'POST',
-        // No se establece 'Content-Type', el navegador se encarga del boundary para FormData
         body: formData,
       });
 
       if (respuesta.ok) {
-        setExito(true);
-        mostrarToast('exito', 'Carga de combustible registrada con éxito.');
-        setTimeout(() => {
-          setExito(false);
-          setVehiculoData(null);
-          setVehiculoId('');
-          setKilometraje('');
-          setLitros('');
-          setImporte('');
-          setJustificacion('');
-          setRequiereJustificacion(false);
-          setFotoTicket(null);
-          setErrores({});
-          setIntentoEnvio(false);
-        }, 2500);
+        setFase('FINALIZADO');
       } else {
-        const errorData = await respuesta.json().catch(() => null);
-        console.error('Error en respuesta:', errorData);
-        mostrarToast('error', `Error al guardar: ${respuesta.statusText || 'Error desconocido'}`);
+        mostrarToast('error', 'Error al guardar en base de datos.');
       }
     } catch (error) {
-      console.error("Error:", error);
-      mostrarToast('error', 'Error de conexión con el servidor.');
+      mostrarToast('error', 'Error de conexión.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const cancelarConfirmacion = () => {
-    setMostrarConfirmacion(false);
   };
 
   return (
@@ -378,529 +331,328 @@ export default function CombustibleClient() {
         <svg className="absolute top-0 left-0 w-full h-64 opacity-30" viewBox="0 0 1440 320" preserveAspectRatio="none">
           <path fill="#007A33" fillOpacity="0.08" d="M0,192L48,176C96,160,192,128,288,138.7C384,149,480,203,576,208C672,213,768,171,864,160C960,149,1056,171,1152,181.3C1248,192,1344,192,1392,192L1440,192L1440,0L1392,0C1344,0,1248,0,1152,0C1056,0,960,0,864,0C768,0,672,0,576,0C480,0,384,0,288,0C192,0,96,0,48,0L0,0Z"></path>
         </svg>
-        <div className="absolute -top-20 -right-20 w-96 h-96 rounded-full bg-[#007A33]/5 blur-3xl"></div>
-        <div className="absolute -bottom-20 -left-20 w-96 h-96 rounded-full bg-[#007A33]/5 blur-3xl"></div>
       </div>
 
       <main className="relative z-10 p-4 w-full max-w-md mx-auto">
         {toast && (
-          <div className={`fixed top-4 right-4 left-4 md:left-auto md:w-96 z-[60] p-4 rounded-xl shadow-lg text-white flex items-center gap-3 ${
-            toast.tipo === 'exito' ? 'bg-[#007A33]' : toast.tipo === 'error' ? 'bg-red-500' : 'bg-blue-500'
-          }`}>
+          <div className={`fixed top-4 right-4 left-4 z-[60] p-4 rounded-xl shadow-lg text-white flex items-center gap-3 ${toast.tipo === 'exito' ? 'bg-[#007A33]' : 'bg-red-500'}`}>
             <span className="text-sm font-medium flex-1">{toast.mensaje}</span>
-            <button onClick={() => setToast(null)} className="text-white/80 hover:text-white">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+            <button onClick={() => setToast(null)}><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         )}
 
-        <Link href="/operacion" className="flex items-center gap-1 text-xs text-slate-600 hover:text-[#007A33] transition-colors mt-2 mb-4 w-fit">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-          </svg>
+        <Link href="/operacion" className="flex items-center gap-1 text-xs text-slate-600 hover:text-[#007A33] mt-2 mb-4">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
           Volver
         </Link>
 
-        <div className="bg-white/80 backdrop-blur-md p-6 rounded-2xl shadow-lg border border-slate-200 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1.5 bg-[#007A33]"></div>
+        <div className="bg-white/80 backdrop-blur-md p-5 rounded-2xl shadow-lg border border-slate-200 relative overflow-hidden">
+          <div className={`absolute top-0 left-0 w-full h-2 ${fase === 'CARGA_Y_COMPROBACION' || fase === 'FINALIZADO' ? 'bg-green-500' : 'bg-[#007A33]'}`}></div>
 
-          <h1 className="text-xl font-extrabold text-slate-800 mb-1 text-center tracking-tight mt-2">
-            Bitácora de Carga
-          </h1>
-          <p className="text-xs text-slate-500 mb-3 text-center font-medium">
-            Completa los datos y anexa la evidencia
-          </p>
-
-          <div className="flex items-center justify-center gap-2 text-xs text-slate-600 bg-slate-50/80 rounded-lg py-2 px-3 mb-4">
-            <svg className="w-4 h-4 text-[#007A33]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <span className="font-semibold">{fechaFormateada}</span>
-            <span className="text-slate-400">|</span>
-            <span className="font-mono">{horaFormateada}</span>
-          </div>
-
-          <div className="flex items-center justify-center mb-6">
-            {pasos.map((paso, index) => (
-              <React.Fragment key={paso.numero}>
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                      paso.completado
-                        ? 'bg-[#007A33] text-white'
-                        : pasoActual() === paso.numero
-                        ? 'bg-[#007A33]/20 text-[#007A33] border-2 border-[#007A33]'
-                        : 'bg-slate-200 text-slate-500'
-                    }`}
-                  >
-                    {paso.completado ? (
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      paso.numero
-                    )}
-                  </div>
-                  <span className="text-[10px] font-semibold text-slate-600 mt-1">{paso.label}</span>
+          {/* Stepper Superior */}
+          <div className="flex justify-between items-center mb-6 mt-3 px-2">
+            {[1,2,3].map((num) => (
+              <div key={num} className="flex items-center">
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                  (fase === 'IDENTIFICACION' && num === 1) || (fase === 'SOLICITUD' && num === 2) || (fase === 'CARGA_Y_COMPROBACION' && num === 3)
+                    ? 'bg-[#007A33] text-white ring-2 ring-[#007A33]/30 ring-offset-2'
+                    : num < (fase === 'CARGA_Y_COMPROBACION' || fase === 'FINALIZADO' ? 4 : fase === 'SOLICITUD' ? 2 : 1) 
+                      ? 'bg-green-100 text-[#007A33]'
+                      : 'bg-slate-200 text-slate-400'
+                }`}>
+                  {num}
                 </div>
-                {index < pasos.length - 1 && (
-                  <div className={`flex-1 h-0.5 mx-2 ${paso.completado ? 'bg-[#007A33]' : 'bg-slate-200'}`} />
-                )}
-              </React.Fragment>
+                {num < 3 && <div className="w-8 h-0.5 mx-1 bg-slate-200"></div>}
+              </div>
             ))}
           </div>
 
-          {mostrarEscaner && (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl w-full max-w-sm p-4 relative">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="font-bold text-[#007A33] text-sm flex items-center gap-1.5">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 4a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm14 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V4zM3 16a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm14 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />
-                    </svg>
-                    Enfoca el código QR
-                  </span>
-                  <button
-                    onClick={() => setMostrarEscaner(false)}
-                    className="text-red-500 text-xs font-bold hover:bg-red-50 px-2 py-1 rounded-md transition-colors"
-                  >
-                    Cancelar
-                  </button>
+          {/* =========================================
+              PANTALLA 1: IDENTIFICACIÓN
+          ========================================= */}
+          {fase === 'IDENTIFICACION' && (
+            <div className="animate-in fade-in zoom-in-95">
+              <h1 className="text-xl font-extrabold text-slate-800 text-center mb-1">Identificar Vehículo</h1>
+              <p className="text-xs text-slate-500 text-center mb-6">Paso 1: Autorización Pre-Carga</p>
+              
+              {!mostrarEscaner ? (
+                <button
+                  onClick={() => setMostrarEscaner(true)}
+                  className="w-full border-2 border-dashed border-[#007A33]/50 bg-[#007A33]/5 text-[#007A33] rounded-xl p-8 flex flex-col items-center justify-center hover:bg-[#007A33]/10 transition-colors"
+                >
+                  <svg className="w-10 h-10 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" /></svg>
+                  <span className="font-bold">Escanear QR del Vehículo</span>
+                </button>
+              ) : (
+                <div className="rounded-xl overflow-hidden shadow-inner border border-slate-200">
+                  <div id="lector-qr" className="w-full bg-black"></div>
+                  <button onClick={() => setMostrarEscaner(false)} className="w-full py-2 bg-red-50 text-red-600 font-bold text-xs uppercase tracking-wider">Cancelar</button>
                 </div>
-                <div id="lector-qr" className="w-full overflow-hidden rounded-lg shadow-sm border border-slate-200 bg-black"></div>
-              </div>
+              )}
             </div>
           )}
 
-          {mostrarConfirmacion && (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className="bg-white/90 backdrop-blur-md rounded-2xl shadow-2xl w-full max-w-sm p-6">
-                <h2 className="text-lg font-extrabold text-slate-800 mb-3 text-center">Confirmar Registro</h2>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Vehículo:</span>
-                    <span className="font-semibold">{vehiculoData?.marcaVehiculo} {vehiculoData?.submarcaVehiculo}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Kilometraje:</span>
-                    <span className="font-semibold">{kilometraje} km</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Litros:</span>
-                    <span className="font-semibold">{litros} L</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Importe:</span>
-                    <span className="font-semibold">${importe}</span>
-                  </div>
-                  {precioPorLitro && (
-                    <div className="flex justify-between border-t border-slate-200 pt-2 mt-2">
-                      <span className="text-slate-500">Precio por litro:</span>
-                      <span className="font-semibold">${precioPorLitro}</span>
-                    </div>
-                  )}
-                  {requiereJustificacion && (
-                    <div className="flex justify-between border-t border-red-200 bg-red-50 p-2 mt-2 rounded-md">
-                      <span className="text-red-700 font-bold">Carga Excedente:</span>
-                      <span className="font-semibold text-red-700">Requiere Revisión</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between border-t border-slate-200 pt-2 mt-2">
-                    <span className="text-slate-500">Fecha y hora:</span>
-                    <span className="font-semibold text-right">
-                      {fechaFormateada}<br/>{horaFormateada}
-                    </span>
-                  </div>
+          {/* =========================================
+              PANTALLA 2: SOLICITUD
+          ========================================= */}
+          {fase === 'SOLICITUD' && vehiculoData && (
+            <div className="animate-in slide-in-from-right">
+              <h1 className="text-xl font-extrabold text-slate-800 text-center mb-1">Solicitar Autorización</h1>
+              <p className="text-xs text-slate-500 text-center mb-4">Paso 2: ¿Cuántos litros requieres?</p>
+              
+              <div className="bg-[#007A33]/5 border border-[#007A33]/20 p-3 rounded-xl mb-4 flex justify-between items-center">
+                <div>
+                  <p className="font-extrabold text-slate-800 text-sm">{vehiculoData.marcaVehiculo} {vehiculoData.submarcaVehiculo}</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Eco: {vehiculoData.economico} | Placas: {vehiculoData.placas}</p>
                 </div>
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={cancelarConfirmacion}
-                    className="flex-1 py-2.5 border border-slate-300 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={confirmarEnvio}
-                    disabled={loading}
-                    className="flex-1 py-2.5 bg-[#007A33] hover:bg-[#005c26] text-white font-bold rounded-xl transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Guardando...
-                      </>
-                    ) : (
-                      'Confirmar'
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {exito ? (
-            <div className="bg-[#007A33]/5 border border-[#007A33]/20 rounded-xl p-6 flex flex-col items-center text-center animate-pulse my-6">
-              <div className="w-12 h-12 bg-[#007A33] text-white rounded-full flex items-center justify-center text-xl mb-3 shadow-md ring-4 ring-[#007A33]/10">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <h2 className="text-lg font-extrabold text-[#007A33]">¡Registro Exitoso!</h2>
-              <p className="text-xs text-slate-600 mt-1 font-medium">La carga de combustible se guardó en el sistema.</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Paso 1: Identificación */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wide">
-                  1. Identificación
-                </label>
-                {!vehiculoData ? (
-                  <button
-                    type="button"
-                    onClick={() => setMostrarEscaner(true)}
-                    disabled={buscandoQR}
-                    className="w-full border-2 border-dashed border-slate-300 bg-slate-50/80 backdrop-blur-sm hover:bg-[#007A33]/5 hover:border-[#007A33]/50 text-slate-500 hover:text-[#007A33] rounded-xl p-5 flex flex-col items-center justify-center transition-all group"
-                  >
-                    {buscandoQR ? (
-                      <svg className="animate-spin h-6 w-6 text-[#007A33] mb-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                    ) : (
-                      <svg className="h-7 w-7 mb-1.5 text-slate-600 group-hover:text-[#007A33] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm14 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
-                      </svg>
-                    )}
-                    <span className="text-sm font-semibold">{buscandoQR ? 'Buscando padrón...' : 'Escanear Código QR'}</span>
-                  </button>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="bg-[#007A33]/5 border border-[#007A33]/20 rounded-xl p-3.5 flex justify-between items-center shadow-sm">
-                      <div className="flex items-center gap-3 w-full">
-                        <div className="bg-white p-2 rounded-full shadow-sm text-[#007A33] border border-[#007A33]/10 shrink-0">
-                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z" />
-                          </svg>
-                        </div>
-                        <div className="flex flex-col gap-1.5 w-full">
-                          <p className="font-extrabold text-slate-800 text-sm leading-tight truncate">
-                            {vehiculoData.marcaVehiculo} {vehiculoData.submarcaVehiculo}
-                          </p>
-                          <div className="flex items-center gap-1.5">
-                            <div className="flex items-center bg-white border border-[#007A33]/20 shadow-sm rounded-md px-1.5 py-0.5 h-6">
-                              <svg className="w-3 h-3 text-slate-600 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
-                              </svg>
-                              <span className="text-[9px] font-mono font-bold text-slate-700 tracking-wide truncate max-w-[90px]" title={vehiculoData.placas}>
-                                {vehiculoData.placas}
-                              </span>
-                            </div>
-                            <div className="flex items-center bg-[#007A33]/10 border border-[#007A33]/20 rounded-md px-1.5 py-0.5 h-6">
-                              <svg className="w-3 h-3 text-[#007A33] mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                              </svg>
-                              <span className="text-[9px] font-bold text-[#007A33] uppercase truncate max-w-[110px]" title={`Eco: ${vehiculoData.economico}`}>
-                                Eco: {vehiculoData.economico}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setVehiculoData(null);
-                          setVehiculoId('');
-                          setKilometraje('');
-                          setLitros('');
-                          setImporte('');
-                          setMostrarEscaner(true);
-                        }}
-                        className="text-slate-600 hover:text-red-500 bg-white hover:bg-red-50 p-1.5 rounded-full transition-colors border border-slate-200 shrink-0"
-                        title="Cambiar vehículo"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {/* BANNER DE PREAUTORIZACIÓN */}
-                    {vehiculoData.preautorizacionActiva && (
-                      <div className="bg-[#007A33]/10 border border-[#007A33]/30 rounded-xl p-3 shadow-sm mt-3 animate-in fade-in slide-in-from-top-2">
-                        <div className="flex items-start gap-2.5">
-                          <div className="bg-[#007A33] text-white p-1.5 rounded-full shrink-0">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                            </svg>
-                          </div>
-                          <div>
-                            <h3 className="text-[#007A33] font-bold text-xs uppercase tracking-wide">Preautorización Activa</h3>
-                            <p className="text-sm font-extrabold text-slate-800 leading-tight">
-                              Carga autorizada por {vehiculoData.preautorizacionActiva.litros} L
-                            </p>
-                            <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-                              Válido hasta las {vehiculoData.preautorizacionActiva.horaFin} hrs
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 🆕 [NUEVO CFE] DASHBOARD VISUAL DE LÍMITE MENSUAL */}
-                    {progresoMensual && (
-                      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm relative overflow-hidden">
-                        <div className="flex justify-between items-end mb-2">
-                          <span className={`text-[11px] font-bold ${vehiculoData.preautorizacionActiva ? 'text-[#007A33]' : 'text-slate-500'} uppercase tracking-wide`}>
-                            {vehiculoData.preautorizacionActiva ? 'Autorización Temporal' : 'Consumo Mensual'}
-                          </span>
-                          <span className="text-xs font-extrabold text-slate-800">
-                            {progresoMensual.consumidos.toFixed(2)} <span className="text-slate-400 font-medium">/ {progresoMensual.limite} L</span>
-                          </span>
-                        </div>
-                        
-                        {/* Barra de Progreso */}
-                        <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                          {/* Lo que ya se había consumido */}
-                          <div 
-                            className="h-full bg-slate-400 transition-all duration-500 ease-out"
-                            style={{ width: `${progresoMensual.porcentaje}%` }}
-                          />
-                          {/* La "proyección" de lo que están tecleando ahorita */}
-                          {litros && Number(litros) > 0 && (
-                            <div 
-                              className={`h-full transition-all duration-500 ease-out ${requiereJustificacion ? 'bg-red-400 animate-pulse' : 'bg-[#007A33]'}`}
-                              style={{ width: `${progresoMensual.porcentajeProyectado - progresoMensual.porcentaje}%` }}
-                            />
-                          )}
-                        </div>
-
-                        <div className="flex justify-between items-center mt-2.5">
-                          {/* 🆕 Estado dinámico con color */}
-                          <span className={`text-[10px] font-bold ${progresoMensual.estadoColor} transition-colors duration-300`}>
-                            {progresoMensual.estadoTexto}
-                          </span>
-                          <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                            Disponibles: {progresoMensual.disponibles} L
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 🆕 [NUEVO CFE] HISTORIAL RECIENTE PARA EL CHOFER */}
-                    {vehiculoData.historialReciente && vehiculoData.historialReciente.length > 0 && (
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 shadow-sm mt-3">
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Últimas 3 Cargas</p>
-                        <div className="space-y-1.5">
-                          {vehiculoData.historialReciente.map((ticket, i) => (
-                            <div key={i} className="flex justify-between items-center text-xs bg-white px-2 py-1.5 rounded-md border border-slate-100">
-                              <span className="text-slate-500 font-medium">{ticket.fecha} - <span className="font-bold text-slate-700">{ticket.litros}L</span></span>
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                ticket.estado === 'APROBADA' ? 'bg-green-100 text-green-700' :
-                                ticket.estado === 'RECHAZADA' ? 'bg-red-100 text-red-700' :
-                                'bg-amber-100 text-amber-700'
-                              }`}>
-                                {ticket.estado === 'APROBADA' ? '✓ Aprobada' : 
-                                 ticket.estado === 'RECHAZADA' ? '✗ Rechazada' : 
-                                 '⏳ En Revisión'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {intentoEnvio && errores.vehiculo && (
-                  <p className="text-red-500 text-xs mt-1">{errores.vehiculo}</p>
-                )}
+                <button onClick={() => setFase('IDENTIFICACION')} className="text-red-500 bg-red-50 p-2 rounded-full"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
               </div>
 
-              {/* Paso 2: Datos de Carga */}
-              <div className="space-y-4 pt-3 border-t border-slate-200/60">
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide">
-                  2. Detalles del Ticket
-                </label>
-
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] z-10">
-                    <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+              {progresoMensual && (
+                <div className="mb-4">
+                  <div className="flex justify-between text-xs font-bold mb-1">
+                    <span className="text-slate-600">Límite Mensual</span>
+                    <span className={progresoMensual.estadoColor}>{progresoMensual.consumidos.toFixed(1)} / {progresoMensual.limite} L</span>
                   </div>
-                  <input
-                    type="number"
-                    id="kilometraje"
-                    value={kilometraje}
-                    onChange={handleKilometrajeChange}
-                    required
-                    placeholder="Kilometraje actual"
-                    className={`w-full border rounded-xl py-2.5 pl-9 pr-10 outline-none focus:border-[#007A33] focus:ring-2 focus:ring-[#007A33]/20 transition-all font-medium text-sm text-slate-700 bg-white/70 backdrop-blur-sm ${
-                      errores.kilometraje ? 'border-red-400' : 'border-slate-300'
-                    }`}
-                  />
-                  <span className="absolute right-3 top-3 text-slate-400 text-xs font-bold z-10">KM</span>
-                  {intentoEnvio && errores.kilometraje && (
-                    <p className="text-red-500 text-xs mt-1">{errores.kilometraje}</p>
-                  )}
+                  <div className="h-2.5 w-full bg-slate-100 rounded-full flex overflow-hidden">
+                    <div className="bg-slate-400 h-full" style={{ width: `${progresoMensual.porcentaje}%` }} />
+                    <div className={`h-full ${requiereJustificacion ? 'bg-red-500 animate-pulse' : 'bg-[#007A33]'}`} style={{ width: `${progresoMensual.porcentajeProyectado - progresoMensual.porcentaje}%` }} />
+                  </div>
                 </div>
+              )}
 
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Litros a cargar:</label>
                   <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] z-10">
-                      <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                      </svg>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      id="litros"
-                      value={litros}
-                      onChange={handleLitrosChange}
-                      required
-                      placeholder="Litros"
-                      className={`w-full border rounded-xl py-2.5 pl-9 pr-3 outline-none focus:border-[#007A33] focus:ring-2 focus:ring-[#007A33]/20 transition-all font-medium text-sm text-slate-700 bg-white/70 backdrop-blur-sm ${
-                        errores.litros ? 'border-red-400' : 'border-slate-300'
-                      }`}
+                    <input 
+                      type="number" value={litrosSolicitados} onChange={handleLitrosSolicitados}
+                      className="w-full text-2xl font-black text-center py-4 rounded-xl border-2 border-slate-200 outline-none focus:border-[#007A33] transition-colors"
+                      placeholder="0"
                     />
-                    {intentoEnvio && errores.litros && (
-                      <p className="text-red-500 text-xs mt-1 font-semibold">{errores.litros}</p>
-                    )}
+                    <span className="absolute right-4 top-5 font-bold text-slate-400">LTS</span>
                   </div>
-
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[#007A33] font-bold text-sm z-10">
-                      $
-                    </div>
-                    <input
-                      type="number"
-                      step="0.01"
-                      id="importe"
-                      value={importe}
-                      onChange={handleImporteChange}
-                      required
-                      placeholder="Importe"
-                      className={`w-full border rounded-xl py-2.5 pl-7 pr-3 outline-none focus:border-[#007A33] focus:ring-2 focus:ring-[#007A33]/20 transition-all font-medium text-sm text-slate-700 bg-white/70 backdrop-blur-sm ${
-                        errores.importe ? 'border-red-400' : 'border-slate-300'
-                      }`}
-                    />
-                    {intentoEnvio && errores.importe && (
-                      <p className="text-red-500 text-xs mt-1">{errores.importe}</p>
-                    )}
-                  </div>
+                  {errores.litrosSolicitados && <p className="text-red-500 text-xs font-bold mt-1 text-center">{errores.litrosSolicitados}</p>}
                 </div>
 
-                {/* 🆕 [NUEVO CFE] CAJA DE JUSTIFICACIÓN DE EXCEPCIONES */}
                 {requiereJustificacion && (
-                  <div className="mt-4 p-4 border-2 border-red-200 bg-red-50/80 rounded-xl transition-all animate-in fade-in slide-in-from-top-4">
-                    <label className="block text-xs font-bold text-red-700 mb-2 uppercase tracking-wide">
-                      ⚠️ Justificación Requerida
-                    </label>
-                    <p className="text-xs text-red-600 mb-2 font-medium">
-                      Estás intentando cargar más litros de los que el vehículo tiene autorizados para este mes. Por normativa de TT, debes detallar el motivo operativo.
-                    </p>
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl animate-in zoom-in">
+                    <p className="text-xs font-bold text-red-700 mb-1">⚠️ Límite Excedido. Requiere Aprobación del Admin.</p>
                     <textarea
-                      value={justificacion}
-                      onChange={(e) => {
-                        setJustificacion(e.target.value);
-                        limpiarError('justificacion');
-                      }}
-                      placeholder="Ej. Viaje extraordinario a subestación por falla en transformador..."
-                      className={`w-full border rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-red-400 transition-all ${
-                        errores.justificacion ? 'border-red-500 bg-red-50' : 'border-red-300 bg-white'
-                      }`}
-                      rows={3}
+                      value={justificacion} onChange={e => {setJustificacion(e.target.value); limpiarError('justificacion')}}
+                      placeholder="Escribe el motivo operativo..." rows={2}
+                      className="w-full p-2 text-sm border border-red-300 rounded-lg outline-none focus:ring-2 focus:ring-red-400"
                     />
-                    {intentoEnvio && errores.justificacion && (
-                      <p className="text-red-600 text-xs mt-1 font-bold">{errores.justificacion}</p>
-                    )}
+                    {errores.justificacion && <p className="text-red-600 text-[10px] font-bold mt-1">{errores.justificacion}</p>}
                   </div>
                 )}
 
-                {precioPorLitro && (
-                  <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-600">
-                    <svg className="w-4 h-4 text-[#007A33]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m-6 4h6m-6 4h6m-6 4h6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
-                    </svg>
-                    <span>Precio por litro: <strong>${precioPorLitro}</strong></span>
-                  </div>
-                )}
+                <button onClick={enviarSolicitud} className="w-full bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-slate-900 flex justify-center items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                  Solicitar Autorización
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================
+              PANTALLA 3: ESPERANDO APROBACIÓN
+          ========================================= */}
+          {fase === 'ESPERANDO_APROBACION' && (
+            <div className="py-10 flex flex-col items-center justify-center text-center animate-in zoom-in-95">
+              <div className="relative mb-6">
+                <div className="absolute inset-0 bg-amber-400 rounded-full blur-xl opacity-20 animate-pulse"></div>
+                <div className="w-20 h-20 bg-amber-100 rounded-full flex items-center justify-center border-4 border-white shadow-xl relative z-10">
+                  <svg className="w-10 h-10 text-amber-500 animate-spin-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+              </div>
+              <h2 className="text-xl font-extrabold text-slate-800 mb-2">Esperando Aprobación</h2>
+              <p className="text-sm text-slate-500 font-medium px-4">
+                La solicitud de excedente fue enviada al <strong>Administrador del Parque Vehicular</strong>. <br/><br/>
+                Por favor, no cargues combustible hasta que la pantalla cambie a verde.
+              </p>
+              {/* Botón Mágico Solo Para la Demo */}
+              <button onClick={() => { setFase('CARGA_Y_COMPROBACION'); mostrarToast('exito', 'Aprobación Forzada para Demo'); }} className="mt-8 text-[10px] text-slate-400 border border-slate-200 px-2 py-1 rounded-md">Simular Aprobación (Demo)</button>
+            </div>
+          )}
+
+          {/* =========================================
+              PANTALLA 4: COMPROBACIÓN POST-CARGA
+          ========================================= */}
+          {fase === 'CARGA_Y_COMPROBACION' && (
+            <div className="animate-in slide-in-from-right">
+              <div className="bg-green-500 text-white p-3 rounded-xl mb-5 shadow-lg shadow-green-500/20 text-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-2 opacity-20 transform rotate-12 scale-150"><svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>
+                <h1 className="text-lg font-black uppercase tracking-widest relative z-10">Autorizado</h1>
+                <p className="text-sm font-medium relative z-10">Puedes despachar <strong>{litrosSolicitados} Litros</strong>.</p>
               </div>
 
-              <div className="pt-3 border-t border-slate-200/60">
-                <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wide">
-                  3. Evidencia (opcional)
-                </label>
-                <div className="mt-1 flex justify-center px-4 pt-4 pb-5 border-2 border-slate-300 border-dashed rounded-xl hover:border-[#007A33] hover:bg-[#007A33]/5 transition-all bg-slate-50/80 backdrop-blur-sm relative group cursor-pointer">
-                  <div className="space-y-1.5 text-center">
-                    <div className={`mx-auto h-10 w-10 rounded-full flex items-center justify-center ${fotoTicket ? 'bg-green-100 text-[#007A33]' : 'bg-slate-200 text-slate-600 group-hover:bg-[#007A33]/20 group-hover:text-[#007A33]'}`}>
-                      {fotoTicket ? (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                        </svg>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Comprobación: Sube las Evidencias</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    
+                    {/* Botón OCR Ticket */}
+                    <div className={`relative border-2 ${fotoTicket ? 'border-[#007A33] bg-green-50' : 'border-dashed border-slate-300 bg-slate-50'} rounded-xl p-4 flex flex-col items-center text-center transition-all`}>
+                      {procesandoTicket ? (
+                        <>
+                          <svg className="animate-spin h-6 w-6 text-[#007A33] mb-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                          <span className="text-[10px] font-bold text-[#007A33]">Extrayendo...</span>
+                        </>
                       ) : (
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
+                        <>
+                          <label className="absolute inset-0 cursor-pointer z-10"><input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => e.target.files?.[0] && simularOCRTicket(e.target.files[0])} /></label>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-1 ${fotoTicket ? 'bg-[#007A33] text-white' : 'bg-slate-200 text-slate-500'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></div>
+                          <span className="text-xs font-bold text-slate-800">{fotoTicket ? 'Ticket OK' : 'Foto Ticket'}</span>
+                        </>
                       )}
                     </div>
-                    <div className="flex text-xs text-slate-600 justify-center">
-                      <label htmlFor="file-upload" className="relative cursor-pointer rounded-md font-bold text-[#007A33] hover:text-[#005c26] focus-within:outline-none px-1">
-                        <span>{fotoTicket ? 'Cambiar fotografía' : 'Tomar o subir foto'}</span>
-                        <input
-                          id="file-upload"
-                          name="file-upload"
-                          type="file"
-                          accept="image/*"
-                          capture="environment"
-                          className="sr-only"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              setFotoTicket(e.target.files[0]);
-                            }
-                          }}
-                        />
-                      </label>
+
+                    {/* Botón OCR Odómetro */}
+                    <div className={`relative border-2 ${fotoOdometro ? 'border-[#007A33] bg-green-50' : 'border-dashed border-slate-300 bg-slate-50'} rounded-xl p-4 flex flex-col items-center text-center transition-all`}>
+                      {procesandoOdometro ? (
+                        <>
+                          <svg className="animate-spin h-6 w-6 text-[#007A33] mb-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                          <span className="text-[10px] font-bold text-[#007A33]">Extrayendo...</span>
+                        </>
+                      ) : (
+                        <>
+                          <label className="absolute inset-0 cursor-pointer z-10"><input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => e.target.files?.[0] && simularOCROdometro(e.target.files[0])} /></label>
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-1 ${fotoOdometro ? 'bg-[#007A33] text-white' : 'bg-slate-200 text-slate-500'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg></div>
+                          <span className="text-xs font-bold text-slate-800">{fotoOdometro ? 'Tablero OK' : 'Foto Odómetro'}</span>
+                        </>
+                      )}
                     </div>
-                    <p className="text-[10px] text-slate-500 font-medium">
-                      {fotoTicket ? fotoTicket.name : 'Formatos PNG o JPG (opcional)'}
-                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Datos Extraídos IA</p>
+                    <button onClick={()=>setCapturaManual(!capturaManual)} className="text-[9px] text-[#007A33] font-bold uppercase underline">¿Corregir?</button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <p className="text-[9px] text-slate-400">LITROS (TICKET)</p>
+                      {capturaManual ? <input type="number" value={litrosExtraidos} onChange={e=>setLitrosExtraidos(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold"/> : <p className="font-bold text-sm text-slate-800">{litrosExtraidos || '--'}</p>}
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-slate-400">IMPORTE</p>
+                      {capturaManual ? <input type="number" value={importeExtraido} onChange={e=>setImporteExtraido(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold"/> : <p className="font-bold text-sm text-slate-800">${importeExtraido || '--'}</p>}
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-slate-400">KILOMETRAJE</p>
+                      {capturaManual ? <input type="number" value={kilometrajeExtraido} onChange={e=>setKilometrajeExtraido(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold"/> : <p className="font-bold text-sm text-slate-800">{kilometrajeExtraido || '--'}</p>}
+                    </div>
+                  </div>
+                  {/* Alerta si hay discrepancia */}
+                  {(litrosExtraidos && parseFloat(litrosExtraidos) !== parseFloat(litrosSolicitados)) && (
+                    <div className="mt-3 bg-amber-50 border border-amber-200 p-2 rounded flex gap-2 items-start">
+                      <span className="text-amber-500 text-xs">⚠️</span>
+                      <p className="text-[10px] text-amber-800 font-medium">Los litros del ticket ({litrosExtraidos}) no coinciden con la autorización ({litrosSolicitados}). Esto generará una notificación para la Secretaria.</p>
+                    </div>
+                  )}
+                </div>
+
+                <button 
+                  onClick={() => {
+                    if (!capturaManual && (!litrosExtraidos || !kilometrajeExtraido || !importeExtraido)) {
+                      mostrarToast('error', 'Faltan evidencias. Sube las fotos o activa el modo manual.');
+                      return;
+                    }
+                    setMostrarModalConfirmacion(true);
+                  }}
+                  disabled={loading || (!fotoTicket && !capturaManual) || (!fotoOdometro && !capturaManual)}
+                  className="w-full bg-[#007A33] hover:bg-[#005c26] disabled:bg-slate-300 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md flex justify-center items-center gap-2"
+                >
+                  Continuar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================
+              MODAL DE CONFIRMACIÓN FINAL
+          ========================================= */}
+          {mostrarModalConfirmacion && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+                <div className="bg-[#007A33] px-4 py-3 text-white text-center">
+                  <h3 className="font-black text-lg">Confirmar Registro</h3>
+                </div>
+                
+                <div className="p-5 space-y-4">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    <p className="text-xs text-slate-500 font-bold uppercase mb-2">Resumen de la Operación</p>
+                    
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2 text-sm">
+                      <span className="text-slate-600">Vehículo:</span>
+                      <span className="font-bold text-slate-800">{vehiculoData?.economico} ({vehiculoData?.placas})</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2 text-sm">
+                      <span className="text-slate-600">Autorización previa:</span>
+                      <span className="font-bold text-[#007A33]">{litrosSolicitados} LTS</span>
+                    </div>
+
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2 text-sm">
+                      <span className="text-slate-600">Litros comprobados:</span>
+                      <span className={`font-bold ${parseFloat(litrosExtraidos) !== parseFloat(litrosSolicitados) ? 'text-amber-500' : 'text-slate-800'}`}>{litrosExtraidos || '--'} LTS</span>
+                    </div>
+
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2 text-sm">
+                      <span className="text-slate-600">Importe total:</span>
+                      <span className="font-bold text-slate-800">${importeExtraido || '--'}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-slate-600">Kilometraje:</span>
+                      <span className="font-bold text-slate-800">{kilometrajeExtraido || '--'} KM</span>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-center text-slate-500 italic">
+                    Declaro que los datos ingresados son correctos y coinciden con mis comprobantes físicos.
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-3 pt-2">
+                    <button 
+                      onClick={() => setMostrarModalConfirmacion(false)}
+                      className="py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      onClick={finalizarComprobacion}
+                      disabled={loading}
+                      className="py-3 rounded-xl font-bold text-white bg-[#007A33] hover:bg-[#005c26] transition-colors flex justify-center items-center"
+                    >
+                      {loading ? 'Enviando...' : 'Sí, Confirmar'}
+                    </button>
                   </div>
                 </div>
               </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#007A33] hover:bg-[#005c26] text-white font-bold rounded-xl py-3.5 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed mt-4 text-sm flex justify-center items-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Guardando...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                    </svg>
-                    Guardar Carga
-                  </>
-                )}
-              </button>
-            </form>
+            </div>
           )}
+
+          {/* =========================================
+              PANTALLA 5: FINALIZADO
+          ========================================= */}
+          {fase === 'FINALIZADO' && (
+            <div className="py-8 flex flex-col items-center text-center animate-in zoom-in-95">
+              <div className="w-16 h-16 bg-[#007A33] text-white rounded-full flex items-center justify-center text-3xl mb-4 shadow-lg ring-4 ring-green-100">✓</div>
+              <h2 className="text-xl font-extrabold text-[#007A33] mb-1">Carga Registrada</h2>
+              <p className="text-sm text-slate-600 font-medium px-4 mb-6">
+                El comprobante y los datos se subieron exitosamente al sistema.
+              </p>
+              <button onClick={() => {
+                setFase('IDENTIFICACION'); setVehiculoData(null); setLitrosSolicitados(''); setFotoTicket(null); setFotoOdometro(null); setLitrosExtraidos(''); setImporteExtraido(''); setKilometrajeExtraido(''); setRequiereJustificacion(false);
+              }} className="px-6 py-2 border border-slate-300 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors">
+                Registrar otro vehículo
+              </button>
+            </div>
+          )}
+
         </div>
       </main>
     </div>

@@ -49,3 +49,8 @@ certificates/
 
 # Repomix output (Archivos generados para la IA)
 repomix-output.*
+
+# Python
+venv/
+__pycache__/
+*.pyc
