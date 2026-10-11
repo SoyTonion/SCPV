@@ -10,7 +10,7 @@ interface VehiculoData {
   placas: string;
   economico: string;
   kilometrajeActual: number;
-  capacidadTanque: number | null; 
+  capacidadTanque: number | null;
   limiteMensualLitros: number | null;
   litrosConsumidosMes: number;
   historialReciente?: { id: string, litros: number, estado: string, fecha: string }[];
@@ -23,6 +23,15 @@ interface Toast {
 }
 
 type FaseOperacion = 'IDENTIFICACION' | 'SOLICITUD' | 'ESPERANDO_APROBACION' | 'CARGA_Y_COMPROBACION' | 'FINALIZADO';
+
+const PLANTILLAS_MOTIVO_AJUSTE = [
+  '🤖 IA no detectó texto / reflejo',
+  '🧾 Ticket arrugado o desgastado',
+  '📸 Tablero oscuro / reflejo en odómetro',
+  '🪙 Corrección de centavos o decimales',
+  '⛽ Lectura manual en bomba',
+  '✍️ Otro motivo'
+];
 
 export default function CombustibleClient() {
   const [fase, setFase] = useState<FaseOperacion>('IDENTIFICACION');
@@ -44,8 +53,13 @@ export default function CombustibleClient() {
   const [fotoOdometro, setFotoOdometro] = useState<File | null>(null);
   const [procesandoTicket, setProcesandoTicket] = useState(false);
   const [procesandoOdometro, setProcesandoOdometro] = useState(false);
-  const [capturaManual, setCapturaManual] = useState(false);
+  const [capturaManualTicket, setCapturaManualTicket] = useState(false);
+  const [capturaManualOdometro, setCapturaManualOdometro] = useState(false);
   const [mostrarModalConfirmacion, setMostrarModalConfirmacion] = useState(false);
+
+  // Motivo / Nota de ajuste o captura manual
+  const [motivoAjuste, setMotivoAjuste] = useState('');
+  const [notaAjustePersonalizada, setNotaAjustePersonalizada] = useState('');
 
   // Datos extraídos por la IA (o manuales)
   const [litrosExtraidos, setLitrosExtraidos] = useState('');
@@ -87,12 +101,12 @@ export default function CombustibleClient() {
     if (!vehiculoData || !vehiculoData.limiteMensualLitros) return null;
     const consumidos = vehiculoData.litrosConsumidosMes;
     const limite = vehiculoData.limiteMensualLitros;
-    
+
     const porcentaje = Math.min((consumidos / limite) * 100, 100);
     const litrosIntento = parseFloat(litrosSolicitados) || 0;
     const porcentajeProyectado = Math.min(((consumidos + litrosIntento) / limite) * 100, 100);
-    
-    let estadoColor = 'text-[#007A33]'; 
+
+    let estadoColor = 'text-[#007A33]';
     if (consumidos + litrosIntento > limite) estadoColor = 'text-red-500';
 
     return {
@@ -121,8 +135,8 @@ export default function CombustibleClient() {
           economico: datosVehiculo.economico || 'S/N',
           kilometrajeActual: datosVehiculo.kilometrajeActual || 0,
           capacidadTanque: datosVehiculo.capacidadTanque ? parseFloat(datosVehiculo.capacidadTanque) : null,
-          limiteMensualLitros: datosVehiculo.preautorizacionActiva ? 
-            ((datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : 0) + parseFloat(datosVehiculo.preautorizacionActiva.litros)) : 
+          limiteMensualLitros: datosVehiculo.preautorizacionActiva ?
+            ((datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : 0) + parseFloat(datosVehiculo.preautorizacionActiva.litros)) :
             (datosVehiculo.limiteMensualLitros ? parseFloat(datosVehiculo.limiteMensualLitros) : null),
           litrosConsumidosMes: datosVehiculo.litrosConsumidosMes || 0,
           historialReciente: datosVehiculo.historialReciente || [],
@@ -152,7 +166,7 @@ export default function CombustibleClient() {
           setMostrarEscaner(false);
           await procesarQRReal(textoEscaneado);
         },
-        () => {}
+        () => { }
       );
       return () => { scanner.clear().catch(e => console.error(e)); };
     }
@@ -184,6 +198,10 @@ export default function CombustibleClient() {
       setErrores({ litrosSolicitados: 'Ingresa una cantidad válida' });
       return;
     }
+    if (vehiculoData && vehiculoData.capacidadTanque && num > vehiculoData.capacidadTanque) {
+      setErrores({ litrosSolicitados: `La cantidad (${num} L) no puede superar la capacidad del tanque (${vehiculoData.capacidadTanque} L).` });
+      return;
+    }
     if (requiereJustificacion && !justificacion.trim()) {
       setErrores({ justificacion: 'Debes escribir el motivo del excedente' });
       return;
@@ -192,7 +210,7 @@ export default function CombustibleClient() {
     if (requiereJustificacion) {
       // Si se pasa del límite, lo mandamos a "Esperando Aprobación" del Administrador
       setFase('ESPERANDO_APROBACION');
-      
+
       // Simulación de que el Admin lo aprueba en 4 segundos para la Demo
       setTimeout(() => {
         setFase('CARGA_Y_COMPROBACION');
@@ -204,6 +222,17 @@ export default function CombustibleClient() {
     }
   };
 
+  // Comprobación de si hubo ajuste manual o falta de lectura IA
+  const huboAjusteManual = useMemo(() => {
+    if (capturaManualTicket || capturaManualOdometro) return true;
+    if (ocrLitros && litrosExtraidos && litrosExtraidos !== ocrLitros) return true;
+    if (ocrImporte && importeExtraido && importeExtraido !== ocrImporte) return true;
+    if (ocrOdometro && kilometrajeExtraido && kilometrajeExtraido !== ocrOdometro) return true;
+    if (!ocrLitros && litrosExtraidos) return true;
+    if (!ocrOdometro && kilometrajeExtraido) return true;
+    return false;
+  }, [capturaManualTicket, capturaManualOdometro, ocrLitros, litrosExtraidos, ocrImporte, importeExtraido, ocrOdometro, kilometrajeExtraido]);
+
   // ==========================================
   // FASE 3/4: Comprobación (Carga y OCR)
   // ==========================================
@@ -211,21 +240,17 @@ export default function CombustibleClient() {
     setProcesandoTicket(true);
     setFotoTicket(file);
     try {
-      // Mandamos la foto físicamente al microservicio de Python (FastAPI)
       const formData = new FormData();
       formData.append('file', file);
-      
-      // Ahora le pegamos a nuestro propio puente de Next.js
+
       const res = await fetch('/api/ocr-ticket', {
         method: 'POST',
         body: formData
       });
-      
-      if (!res.ok) throw new Error('Error en el microservicio de OCR');
-      
-      const data = await res.json();
-      
-      if (data.exito) {
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.exito && (data.litros || data.total)) {
         if (data.litros) {
           setLitrosExtraidos(String(data.litros));
           setOcrLitros(String(data.litros));
@@ -235,15 +260,21 @@ export default function CombustibleClient() {
           setOcrImporte(String(data.total));
         }
         limpiarError('ticket');
-        mostrarToast('exito', 'Ticket leído por Inteligencia Artificial.');
+
+        if (!data.litros || !data.total) {
+          mostrarToast('info', 'Lectura parcial de IA: Falta ' + (!data.litros ? 'litros' : 'importe') + '. Favor de verificar que la foto sea legible y rellenar los campos manualmente abajo.');
+          setCapturaManualTicket(true);
+        } else {
+          mostrarToast('exito', 'Ticket leído exitosamente por IA.');
+        }
       } else {
-        mostrarToast('error', data.mensaje || 'No se pudo leer el ticket.');
-        setCapturaManual(true); // Activar captura manual si la IA falla
+        mostrarToast('info', data?.mensaje || 'No se detectaron datos en el ticket. Favor de asegurarse de tomar una foto nítida y legible del ticket y rellenar los campos manualmente abajo.');
+        setCapturaManualTicket(true);
       }
     } catch (e) {
       console.error(e);
-      mostrarToast('error', 'Error de conexión con el OCR. Asegúrate de tener Python corriendo.');
-      setCapturaManual(true);
+      mostrarToast('info', 'No se pudo conectar con el escáner de IA. Favor de asegurar foto legible y rellenar los campos manualmente abajo.');
+      setCapturaManualTicket(true);
     } finally {
       setProcesandoTicket(false);
     }
@@ -255,27 +286,27 @@ export default function CombustibleClient() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      
+
       const res = await fetch('/api/ocr-odometro', {
         method: 'POST',
         body: formData
       });
-      
-      if (!res.ok) throw new Error('Error en OCR Odómetro');
-      
-      const data = await res.json();
-      
-      if (data.exito && data.odometro) {
+
+      const data = await res.json().catch(() => null);
+
+      if (res.ok && data?.exito && data?.odometro) {
         setKilometrajeExtraido(String(data.odometro));
         setOcrOdometro(String(data.odometro));
         limpiarError('odometro');
         mostrarToast('exito', 'Kilometraje extraído con IA.');
       } else {
-        mostrarToast('error', data.mensaje || 'No se pudo leer el kilometraje del tablero.');
+        mostrarToast('info', data?.mensaje || 'No se detectó el kilometraje en el tablero. Favor de verificar que la foto sea legible y capturar el kilometraje manualmente abajo.');
+        setCapturaManualOdometro(true);
       }
     } catch (e) {
       console.error(e);
-      mostrarToast('error', 'Error al leer el odómetro.');
+      mostrarToast('info', 'No se pudo conectar con el escáner de IA. Favor de verificar foto legible y capturar odómetro manualmente abajo.');
+      setCapturaManualOdometro(true);
     } finally {
       setProcesandoOdometro(false);
     }
@@ -283,28 +314,51 @@ export default function CombustibleClient() {
 
   const finalizarComprobacion = async () => {
     setMostrarModalConfirmacion(false);
-    
-    // Aquí iría la validación para mandar "Falso Positivo" a la Secretaria.
-    // 1. Si los litros sobrepasan los solicitados
-    // 2. Si el chofer tecleó algo diferente a lo que leyó la IA
-    const fueModificadoPorChofer = 
-      (ocrLitros !== '' && litrosExtraidos !== ocrLitros) || 
-      (ocrImporte !== '' && importeExtraido !== ocrImporte) || 
-      (ocrOdometro !== '' && kilometrajeExtraido !== ocrOdometro);
 
-    const falsoPositivo = fueModificadoPorChofer || (parseFloat(litrosExtraidos) > parseFloat(litrosSolicitados));
+    let etiquetasAlerta: string[] = [];
+
+    // Evaluar Ticket
+    if (ocrLitros === '' || ocrImporte === '') etiquetasAlerta.push('[TIPO_B] TICKET_ILEGIBLE');
+    else if (litrosExtraidos !== ocrLitros || importeExtraido !== ocrImporte) etiquetasAlerta.push('[TIPO_A] TICKET_ALTERADO');
+
+    // Evaluar Odómetro
+    if (ocrOdometro === '') etiquetasAlerta.push('[TIPO_B] ODOMETRO_ILEGIBLE');
+    else if (kilometrajeExtraido !== ocrOdometro) etiquetasAlerta.push('[TIPO_A] ODOMETRO_ALTERADO');
+
+    // Evaluar Discrepancia Operativa (Paso 1 vs Paso 3)
+    if (parseFloat(litrosExtraidos) !== parseFloat(litrosSolicitados)) etiquetasAlerta.push('[TIPO_C] DISCREPANCIA_VOLUMEN');
+
+    const falsoPositivo = etiquetasAlerta.length > 0;
+
+    // Si hubo ajuste manual o falta de lectura IA, adjuntar nota explicativa
+    const notaExplicativa = [motivoAjuste, notaAjustePersonalizada.trim()].filter(Boolean).join(' - ');
+    const fragmentoAjuste = huboAjusteManual
+      ? `[MOTIVO_AJUSTE_MANUAL]: ${notaExplicativa || 'Captura manual por el operador (sin notas)'}`
+      : '';
+
+    const partesJustificacion: string[] = [];
+    if (etiquetasAlerta.length > 0) partesJustificacion.push(etiquetasAlerta.join(', '));
+    if (fragmentoAjuste) partesJustificacion.push(fragmentoAjuste);
+    if (justificacion) partesJustificacion.push(`Excedente Autorizado: ${justificacion}`);
+
+    const justificacionFinal = partesJustificacion.join(' | ');
 
     setLoading(true);
     try {
       const formData = new FormData();
       formData.append('vehiculoId', vehiculoId);
       formData.append('kilometraje', kilometrajeExtraido);
+      if (ocrOdometro) formData.append('kilometrajeOcr', ocrOdometro);
+
       formData.append('litros', litrosExtraidos);
+      if (ocrLitros) formData.append('litrosOcr', ocrLitros);
+
       formData.append('importe', importeExtraido);
+      if (ocrImporte) formData.append('importeOcr', ocrImporte);
       formData.append('esExcepcion', String(requiereJustificacion));
-      formData.append('falsoPositivo', String(falsoPositivo)); // Para la bandeja de la secretaria
-      
-      if (justificacion) formData.append('justificacion', justificacion);
+      formData.append('falsoPositivo', String(falsoPositivo || huboAjusteManual)); // Para la bandeja de auditoría
+
+      if (justificacionFinal) formData.append('justificacion', justificacionFinal);
       if (fotoTicket) formData.append('evidencia', fotoTicket);
       if (fotoOdometro) formData.append('evidenciaOdometro', fotoOdometro);
 
@@ -316,7 +370,8 @@ export default function CombustibleClient() {
       if (respuesta.ok) {
         setFase('FINALIZADO');
       } else {
-        mostrarToast('error', 'Error al guardar en base de datos.');
+        const errorData = await respuesta.json().catch(() => null);
+        mostrarToast('error', errorData?.error || 'Error al guardar en base de datos.');
       }
     } catch (error) {
       mostrarToast('error', 'Error de conexión.');
@@ -351,15 +406,14 @@ export default function CombustibleClient() {
 
           {/* Stepper Superior */}
           <div className="flex justify-between items-center mb-6 mt-3 px-2">
-            {[1,2,3].map((num) => (
+            {[1, 2, 3].map((num) => (
               <div key={num} className="flex items-center">
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                  (fase === 'IDENTIFICACION' && num === 1) || (fase === 'SOLICITUD' && num === 2) || (fase === 'CARGA_Y_COMPROBACION' && num === 3)
-                    ? 'bg-[#007A33] text-white ring-2 ring-[#007A33]/30 ring-offset-2'
-                    : num < (fase === 'CARGA_Y_COMPROBACION' || fase === 'FINALIZADO' ? 4 : fase === 'SOLICITUD' ? 2 : 1) 
-                      ? 'bg-green-100 text-[#007A33]'
-                      : 'bg-slate-200 text-slate-400'
-                }`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${(fase === 'IDENTIFICACION' && num === 1) || (fase === 'SOLICITUD' && num === 2) || (fase === 'CARGA_Y_COMPROBACION' && num === 3)
+                  ? 'bg-[#007A33] text-white ring-2 ring-[#007A33]/30 ring-offset-2'
+                  : num < (fase === 'CARGA_Y_COMPROBACION' || fase === 'FINALIZADO' ? 4 : fase === 'SOLICITUD' ? 2 : 1)
+                    ? 'bg-green-100 text-[#007A33]'
+                    : 'bg-slate-200 text-slate-400'
+                  }`}>
                   {num}
                 </div>
                 {num < 3 && <div className="w-8 h-0.5 mx-1 bg-slate-200"></div>}
@@ -374,7 +428,7 @@ export default function CombustibleClient() {
             <div className="animate-in fade-in zoom-in-95">
               <h1 className="text-xl font-extrabold text-slate-800 text-center mb-1">Identificar Vehículo</h1>
               <p className="text-xs text-slate-500 text-center mb-6">Paso 1: Autorización Pre-Carga</p>
-              
+
               {!mostrarEscaner ? (
                 <button
                   onClick={() => setMostrarEscaner(true)}
@@ -399,13 +453,13 @@ export default function CombustibleClient() {
             <div className="animate-in slide-in-from-right">
               <h1 className="text-xl font-extrabold text-slate-800 text-center mb-1">Solicitar Autorización</h1>
               <p className="text-xs text-slate-500 text-center mb-4">Paso 2: ¿Cuántos litros requieres?</p>
-              
+
               <div className="bg-[#007A33]/5 border border-[#007A33]/20 p-3 rounded-xl mb-4 flex justify-between items-center">
                 <div>
                   <p className="font-extrabold text-slate-800 text-sm">{vehiculoData.marcaVehiculo} {vehiculoData.submarcaVehiculo}</p>
                   <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Eco: {vehiculoData.economico} | Placas: {vehiculoData.placas}</p>
                 </div>
-                <button onClick={() => setFase('IDENTIFICACION')} className="text-red-500 bg-red-50 p-2 rounded-full"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+                <button onClick={() => setFase('IDENTIFICACION')} className="text-red-500 bg-red-50 p-2 rounded-full"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
               </div>
 
               {progresoMensual && (
@@ -425,7 +479,7 @@ export default function CombustibleClient() {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Litros a cargar:</label>
                   <div className="relative">
-                    <input 
+                    <input
                       type="number" value={litrosSolicitados} onChange={handleLitrosSolicitados}
                       className="w-full text-2xl font-black text-center py-4 rounded-xl border-2 border-slate-200 outline-none focus:border-[#007A33] transition-colors"
                       placeholder="0"
@@ -439,7 +493,7 @@ export default function CombustibleClient() {
                   <div className="p-3 bg-red-50 border border-red-200 rounded-xl animate-in zoom-in">
                     <p className="text-xs font-bold text-red-700 mb-1">⚠️ Límite Excedido. Requiere Aprobación del Admin.</p>
                     <textarea
-                      value={justificacion} onChange={e => {setJustificacion(e.target.value); limpiarError('justificacion')}}
+                      value={justificacion} onChange={e => { setJustificacion(e.target.value); limpiarError('justificacion') }}
                       placeholder="Escribe el motivo operativo..." rows={2}
                       className="w-full p-2 text-sm border border-red-300 rounded-lg outline-none focus:ring-2 focus:ring-red-400"
                     />
@@ -448,7 +502,7 @@ export default function CombustibleClient() {
                 )}
 
                 <button onClick={enviarSolicitud} className="w-full bg-slate-800 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-slate-900 flex justify-center items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                   Solicitar Autorización
                 </button>
               </div>
@@ -468,7 +522,7 @@ export default function CombustibleClient() {
               </div>
               <h2 className="text-xl font-extrabold text-slate-800 mb-2">Esperando Aprobación</h2>
               <p className="text-sm text-slate-500 font-medium px-4">
-                La solicitud de excedente fue enviada al <strong>Administrador del Parque Vehicular</strong>. <br/><br/>
+                La solicitud de excedente fue enviada al <strong>Administrador del Parque Vehicular</strong>. <br /><br />
                 Por favor, no cargues combustible hasta que la pantalla cambie a verde.
               </p>
               {/* Botón Mágico Solo Para la Demo */}
@@ -482,7 +536,7 @@ export default function CombustibleClient() {
           {fase === 'CARGA_Y_COMPROBACION' && (
             <div className="animate-in slide-in-from-right">
               <div className="bg-green-500 text-white p-3 rounded-xl mb-5 shadow-lg shadow-green-500/20 text-center relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-2 opacity-20 transform rotate-12 scale-150"><svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg></div>
+                <div className="absolute top-0 right-0 p-2 opacity-20 transform rotate-12 scale-150"><svg className="w-16 h-16" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" /></svg></div>
                 <h1 className="text-lg font-black uppercase tracking-widest relative z-10">Autorizado</h1>
                 <p className="text-sm font-medium relative z-10">Puedes despachar <strong>{litrosSolicitados} Litros</strong>.</p>
               </div>
@@ -491,7 +545,7 @@ export default function CombustibleClient() {
                 <div>
                   <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Comprobación: Sube las Evidencias</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    
+
                     {/* Botón OCR Ticket */}
                     <div className={`relative border-2 ${fotoTicket ? 'border-[#007A33] bg-green-50' : 'border-dashed border-slate-300 bg-slate-50'} rounded-xl p-4 flex flex-col items-center text-center transition-all`}>
                       {procesandoTicket ? (
@@ -527,22 +581,41 @@ export default function CombustibleClient() {
                 </div>
 
                 <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Datos Extraídos IA</p>
-                    <button onClick={()=>setCapturaManual(!capturaManual)} className="text-[9px] text-[#007A33] font-bold uppercase underline">¿Corregir?</button>
-                  </div>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">Datos de la Operación</p>
                   <div className="grid grid-cols-3 gap-2">
                     <div>
-                      <p className="text-[9px] text-slate-400">LITROS (TICKET)</p>
-                      {capturaManual ? <input type="number" value={litrosExtraidos} onChange={e=>setLitrosExtraidos(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold"/> : <p className="font-bold text-sm text-slate-800">{litrosExtraidos || '--'}</p>}
+                      <div className="flex justify-between items-center">
+                        <p className="text-[9px] text-slate-400">LITROS (TICKET)</p>
+                        {fotoTicket && <button onClick={() => setCapturaManualTicket(!capturaManualTicket)} className="text-[9px] text-[#007A33] font-bold uppercase underline">¿Corregir?</button>}
+                      </div>
+                      {capturaManualTicket ? <input type="number" value={litrosExtraidos} onChange={e => setLitrosExtraidos(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold" /> : <p className="font-bold text-sm text-slate-800">{litrosExtraidos || '--'}</p>}
                     </div>
                     <div>
-                      <p className="text-[9px] text-slate-400">IMPORTE</p>
-                      {capturaManual ? <input type="number" value={importeExtraido} onChange={e=>setImporteExtraido(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold"/> : <p className="font-bold text-sm text-slate-800">${importeExtraido || '--'}</p>}
+                      <div className="flex justify-between items-center">
+                        <p className="text-[9px] text-slate-400">IMPORTE</p>
+                        {fotoTicket && <button onClick={() => setCapturaManualTicket(!capturaManualTicket)} className="text-[9px] text-[#007A33] font-bold uppercase underline">¿Corregir?</button>}
+                      </div>
+                      {capturaManualTicket ? <input type="number" value={importeExtraido} onChange={e => setImporteExtraido(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold" /> : <p className="font-bold text-sm text-slate-800">${importeExtraido || '--'}</p>}
                     </div>
                     <div>
-                      <p className="text-[9px] text-slate-400">KILOMETRAJE</p>
-                      {capturaManual ? <input type="number" value={kilometrajeExtraido} onChange={e=>setKilometrajeExtraido(e.target.value)} className="w-full border rounded px-1 py-0.5 text-xs font-bold"/> : <p className="font-bold text-sm text-slate-800">{kilometrajeExtraido || '--'}</p>}
+                      <div className="flex justify-between items-center">
+                        <p className="text-[9px] text-slate-400">KILOMETRAJE</p>
+                        {fotoOdometro && <button onClick={() => setCapturaManualOdometro(!capturaManualOdometro)} className="text-[9px] text-[#007A33] font-bold uppercase underline">¿Corregir?</button>}
+                      </div>
+                      {capturaManualOdometro ? (
+                        <input
+                          type="number"
+                          value={kilometrajeExtraido}
+                          onChange={e => setKilometrajeExtraido(e.target.value)}
+                          className="w-full border rounded px-1 py-0.5 text-xs font-bold"
+                          placeholder={`> ${vehiculoData?.kilometrajeActual || 0}`}
+                        />
+                      ) : (
+                        <p className="font-bold text-sm text-slate-800">{kilometrajeExtraido || '--'}</p>
+                      )}
+                      {vehiculoData && (
+                        <span className="text-[8px] text-slate-400 block mt-0.5">Actual: {vehiculoData.kilometrajeActual} KM</span>
+                      )}
                     </div>
                   </div>
                   {/* Alerta si hay discrepancia */}
@@ -552,17 +625,73 @@ export default function CombustibleClient() {
                       <p className="text-[10px] text-amber-800 font-medium">Los litros del ticket ({litrosExtraidos}) no coinciden con la autorización ({litrosSolicitados}). Esto generará una notificación para la Secretaria.</p>
                     </div>
                   )}
+
+                  {/* Banner y selector de motivo de ajuste si el operador editó o ingresó a mano */}
+                  {(capturaManualTicket || capturaManualOdometro || (ocrLitros && litrosExtraidos !== ocrLitros) || (ocrOdometro && kilometrajeExtraido !== ocrOdometro)) && (
+                    <div className="mt-3 p-3 bg-amber-50/90 border border-amber-200 rounded-xl space-y-2.5 animate-in fade-in">
+                      <div className="flex items-start gap-2">
+                        <span className="text-amber-600 text-sm mt-0.5">ℹ️</span>
+                        <div>
+                          <p className="text-xs font-bold text-amber-900">
+                            Captura / Corrección Manual Activada
+                          </p>
+                          <p className="text-[11px] text-amber-800 leading-snug">
+                            Si el sistema fallo favor de aun asi volver a tomar las fotos físicas y que estas sean <strong>nítidas y legibles</strong>. La Mesa de Control auditará tus fotos contra los valores capturados.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Plantillas de Motivo */}
+                      <div className="pt-1 border-t border-amber-200/70">
+                        <p className="text-[10px] font-bold text-amber-900 uppercase tracking-wider mb-1.5">
+                          ¿Por qué se modificó o capturó a mano? (Selecciona una opción):
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {PLANTILLAS_MOTIVO_AJUSTE.map((plantilla) => (
+                            <button
+                              key={plantilla}
+                              type="button"
+                              onClick={() => setMotivoAjuste(plantilla)}
+                              className={`text-[10px] px-2.5 py-1 rounded-lg font-medium transition-all text-left ${motivoAjuste === plantilla
+                                ? 'bg-[#007A33] text-white font-bold shadow-sm ring-1 ring-green-600'
+                                : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                                }`}
+                            >
+                              {plantilla}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="text"
+                          value={notaAjustePersonalizada}
+                          onChange={(e) => setNotaAjustePersonalizada(e.target.value)}
+                          placeholder={motivoAjuste ? `Detalle adicional de "${motivoAjuste}" (opcional)...` : "Escribe una nota o selecciona una opción de arriba..."}
+                          className="mt-2 w-full text-xs p-2 bg-white border border-amber-300 rounded-lg outline-none focus:ring-1 focus:ring-[#007A33] text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <button 
+                <button
                   onClick={() => {
-                    if (!capturaManual && (!litrosExtraidos || !kilometrajeExtraido || !importeExtraido)) {
-                      mostrarToast('error', 'Faltan evidencias. Sube las fotos o activa el modo manual.');
+                    if (!litrosExtraidos || !kilometrajeExtraido || !importeExtraido) {
+                      mostrarToast('error', 'Faltan datos. Completa la lectura con IA o ingresa los datos manualmente.');
+                      return;
+                    }
+                    const kmNum = parseFloat(kilometrajeExtraido);
+                    if (vehiculoData && kmNum <= (vehiculoData.kilometrajeActual || 0)) {
+                      mostrarToast('error', `El kilometraje (${kmNum}) no puede ser menor o igual al actual registrado (${vehiculoData.kilometrajeActual} KM).`);
+                      return;
+                    }
+                    const litrosNum = parseFloat(litrosExtraidos);
+                    if (vehiculoData && vehiculoData.capacidadTanque && litrosNum > vehiculoData.capacidadTanque * 1.10) {
+                      mostrarToast('error', `Los litros del ticket (${litrosNum} L) exceden la capacidad del tanque del vehículo (${vehiculoData.capacidadTanque} L).`);
                       return;
                     }
                     setMostrarModalConfirmacion(true);
                   }}
-                  disabled={loading || (!fotoTicket && !capturaManual) || (!fotoOdometro && !capturaManual)}
+                  disabled={loading || !fotoTicket || !fotoOdometro}
                   className="w-full bg-[#007A33] hover:bg-[#005c26] disabled:bg-slate-300 text-white font-bold py-3.5 rounded-xl transition-colors shadow-md flex justify-center items-center gap-2"
                 >
                   Continuar
@@ -576,20 +705,20 @@ export default function CombustibleClient() {
           ========================================= */}
           {mostrarModalConfirmacion && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 max-h-[92vh] flex flex-col">
                 <div className="bg-[#007A33] px-4 py-3 text-white text-center">
                   <h3 className="font-black text-lg">Confirmar Registro</h3>
                 </div>
-                
-                <div className="p-5 space-y-4">
+
+                <div className="p-5 space-y-4 overflow-y-auto">
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <p className="text-xs text-slate-500 font-bold uppercase mb-2">Resumen de la Operación</p>
-                    
+
                     <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2 text-sm">
                       <span className="text-slate-600">Vehículo:</span>
                       <span className="font-bold text-slate-800">{vehiculoData?.economico} ({vehiculoData?.placas})</span>
                     </div>
-                    
+
                     <div className="flex justify-between items-center border-b border-slate-200 pb-2 mb-2 text-sm">
                       <span className="text-slate-600">Autorización previa:</span>
                       <span className="font-bold text-[#007A33]">{litrosSolicitados} LTS</span>
@@ -611,21 +740,59 @@ export default function CombustibleClient() {
                     </div>
                   </div>
 
+                  {/* Sección de justificación / motivo de captura manual si aplica */}
+                  {huboAjusteManual && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-left space-y-2">
+                      <div className="flex items-center gap-1.5 text-amber-900 font-bold text-xs">
+                        <span>ℹ️</span>
+                        <span>Nota de Justificación a Mesa de Control</span>
+                      </div>
+                      <p className="text-[11px] text-amber-800 leading-snug">
+                        Esta nota acompañará tus fotos para que un auditor(a) valide tu captura manual:
+                      </p>
+
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap gap-1">
+                          {PLANTILLAS_MOTIVO_AJUSTE.map((plantilla) => (
+                            <button
+                              key={plantilla}
+                              type="button"
+                              onClick={() => setMotivoAjuste(plantilla)}
+                              className={`text-[9px] px-2 py-0.5 rounded-md font-medium transition-colors ${motivoAjuste === plantilla
+                                ? 'bg-[#007A33] text-white font-bold'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                                }`}
+                            >
+                              {plantilla}
+                            </button>
+                          ))}
+                        </div>
+                        <input
+                          type="text"
+                          value={notaAjustePersonalizada}
+                          onChange={e => setNotaAjustePersonalizada(e.target.value)}
+                          placeholder={motivoAjuste ? `Detalles adicionales: ${motivoAjuste}` : "Escribe brevemente por qué cambiaste los datos..."}
+                          className="w-full text-xs p-2 bg-white border border-amber-300 rounded-lg outline-none focus:ring-1 focus:ring-[#007A33] text-slate-800"
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <p className="text-[10px] text-center text-slate-500 italic">
-                    Declaro que los datos ingresados son correctos y coinciden con mis comprobantes físicos.
+                    Declaro que los datos ingresados son correctos y coinciden con mis comprobantes físicos. Las fotos serán auditadas por la Secretaría.
                   </p>
 
                   <div className="grid grid-cols-2 gap-3 pt-2">
-                    <button 
+                    <button
                       onClick={() => setMostrarModalConfirmacion(false)}
                       className="py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
                     >
                       Cancelar
                     </button>
-                    <button 
+                    <button
                       onClick={finalizarComprobacion}
                       disabled={loading}
-                      className="py-3 rounded-xl font-bold text-white bg-[#007A33] hover:bg-[#005c26] transition-colors flex justify-center items-center"
+                      className="py-3 rounded-xl font-bold text-white bg-[#007A33] hover:bg-[#005c26] transition-colors flex justify-center items-center shadow-md"
                     >
                       {loading ? 'Enviando...' : 'Sí, Confirmar'}
                     </button>
@@ -646,7 +813,7 @@ export default function CombustibleClient() {
                 El comprobante y los datos se subieron exitosamente al sistema.
               </p>
               <button onClick={() => {
-                setFase('IDENTIFICACION'); setVehiculoData(null); setLitrosSolicitados(''); setFotoTicket(null); setFotoOdometro(null); setLitrosExtraidos(''); setImporteExtraido(''); setKilometrajeExtraido(''); setRequiereJustificacion(false);
+                setFase('IDENTIFICACION'); setVehiculoData(null); setLitrosSolicitados(''); setFotoTicket(null); setFotoOdometro(null); setLitrosExtraidos(''); setImporteExtraido(''); setKilometrajeExtraido(''); setRequiereJustificacion(false); setCapturaManualTicket(false); setCapturaManualOdometro(false); setMotivoAjuste(''); setNotaAjustePersonalizada('');
               }} className="px-6 py-2 border border-slate-300 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors">
                 Registrar otro vehículo
               </button>

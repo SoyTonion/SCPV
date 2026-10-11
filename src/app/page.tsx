@@ -9,8 +9,14 @@ export default async function LoginPage() {
     // Si hay sesión, redirigimos según el rol
     if (session) {
         const roleId = session.user?.rol as number;
-        if (roleId === 1) redirect('/dashboard');
-        if (roleId === 2) redirect('/guardia/pernocta');
+        const rolName = session.user?.rolName;
+        
+        if (roleId === 1 || rolName === 'ADMIN') redirect('/dashboard');
+        if (roleId === 2 || rolName === 'SUPERVISOR' || rolName === 'GUARDIA') redirect('/guardia/pernocta');
+        if (roleId === 3 || rolName === 'OPERADOR') redirect('/operacion');
+        if (roleId === 4 || rolName === 'VERIFICADOR') redirect('/mesa-control');
+        
+        // Fallback por si acaso
         if (roleId === 3) redirect('/operacion');
     }
 

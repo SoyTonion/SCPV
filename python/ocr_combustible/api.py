@@ -68,6 +68,16 @@ async def extract_ticket(file: UploadFile = File(...)):
         # Limpiar el archivo temporal
         os.remove(temp_filename)
 
+        # Si no se detectó ni litros ni total, solicitar foto legible y captura manual
+        if not litros_encontrados and not total_encontrado:
+            return {
+                "exito": False,
+                "mensaje": "No se detectaron datos en el ticket. Favor de asegurarse de tomar una foto nítida y legible y rellenar los campos manualmente abajo.",
+                "litros": None,
+                "total": None,
+                "raw_text": textos_detectados
+            }
+
         return {
             "exito": True,
             "litros": litros_encontrados,
@@ -92,54 +102,55 @@ async def extract_odometro(file: UploadFile = File(...)):
     try:
         result = ocr.ocr(temp_filename, cls=True)
         if not result or not result[0]:
-            return {"exito": False, "mensaje": "No se detectó texto en el tablero"}
+            return {"exito": False, "mensaje": "No se detectó texto en el tablero. Favor de asegurarse de que la foto sea legible y capturar el kilometraje manualmente abajo."}
 
         textos_detectados = [line[1][0] for line in result[0]]
         
         posibles_kilometrajes = []
         kilometraje_seguro = None
 
-        # Función mágica para corregir los errores típicos de la IA en pantallas digitales
+        # Función para corregir los errores típicos de la IA en pantallas digitales
         def limpiar_falso_numero(texto):
-            # Quitamos espacios y comas para unir números (ej. "125 000")
             t_sin_espacios = re.sub(r'[,\s]', '', texto)
             
-            # Si el texto es puro texto como "TOTAL" o letras seguidas, lo ignoramos para no arruinarlo
             if not any(char.isdigit() for char in t_sin_espacios):
                 return None
                 
-            # Traducimos letras que la IA confunde con números por el brillo o el display digital
-            traductor = str.maketrans("OIlZSBG", "0112586")
+            traductor = str.maketrans("OIlZSBGQ", "01125860")
             texto_traducido = t_sin_espacios.translate(traductor)
             
-            # Extraemos la secuencia numérica más larga de la cadena traducida
-            match = re.search(r'(\d{3,6})', texto_traducido)
-            if match:
-                return int(match.group(1))
+            # Extraemos todos los dígitos encontrados
+            solo_numeros = re.sub(r'[^\d]', '', texto_traducido)
+            if solo_numeros and len(solo_numeros) >= 2:
+                return int(solo_numeros)
             return None
 
-        # 1. Prioridad Máxima: Buscar secuencias que estén explícitamente al lado de KM, ODO, TRIP, etc.
         for t in textos_detectados:
             t_upper = t.upper()
-            if any(palabra in t_upper for palabra in ["KM", "ODO", "TRIP", "MI", "K/H", "KM/H"]):
+            if any(palabra in t_upper for palabra in ["KM", "ODO", "TRIP", "MI"]):
                 num = limpiar_falso_numero(t_upper)
-                # Un auto de flotilla difícilmente tiene menos de 1000 km
-                if num and num > 1000:
+                if num and num > 10:
                     kilometraje_seguro = num
                     break
 
-        # 2. Plan B: Si la foto no captó la palabra KM, buscamos el número más lógico de todo el tablero
         if not kilometraje_seguro:
             for t in textos_detectados:
                 num = limpiar_falso_numero(t.upper())
-                # Filtramos por números realistas para un odómetro de CFE (entre 1,000 y 900,000 km)
-                if num and 1000 <= num <= 900000:
+                if num and 10 <= num <= 999999:
                     posibles_kilometrajes.append(num)
 
-        # Decisión final: Si encontramos el seguro lo usamos, si no, usamos el máximo lógico encontrado
+        # Si encontramos el seguro lo usamos, si no, usamos el máximo lógico
         odometro = kilometraje_seguro if kilometraje_seguro else (max(posibles_kilometrajes) if posibles_kilometrajes else None)
 
         os.remove(temp_filename)
+
+        if not odometro:
+            return {
+                "exito": False,
+                "mensaje": "No se detectó el kilometraje en el tablero. Favor de verificar que la foto sea legible y capturar el kilometraje manualmente abajo.",
+                "odometro": None,
+                "raw_text": textos_detectados
+            }
 
         return {
             "exito": True,
@@ -151,3 +162,7 @@ async def extract_odometro(file: UploadFile = File(...)):
         if os.path.exists(temp_filename):
             os.remove(temp_filename)
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

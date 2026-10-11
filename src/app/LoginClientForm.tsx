@@ -38,16 +38,20 @@ export default function LoginClientForm() {
         } else if (res?.ok) {
             const session = await getSession();
             const userRole = session?.user?.rol;
+            const userRoleName = session?.user?.rolName;
 
-            if (userRole === 1) {
+            if (userRole === 1 || userRoleName === 'ADMIN') {
                 router.push('/dashboard'); 
             } 
-            else if (userRole === 2) {
+            else if (userRole === 2 || userRoleName === 'GUARDIA' || userRoleName === 'SUPERVISOR') {
                 router.push('/guardia/pernocta'); 
             } 
-            else if (userRole === 3) {
+            else if (userRole === 3 || userRoleName === 'OPERADOR') {
                 router.push('/operacion'); 
             } 
+            else if (userRoleName === 'VERIFICADOR') {
+                router.push('/mesa-control');
+            }
             else {
                 setError('Error de permisos. Contacte al administrador.');
                 setLoading(false);

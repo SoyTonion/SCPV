@@ -46,6 +46,8 @@ next-env.d.ts
 certificates/
 
 /public/uploads/patrones
+/public/uploads/tickets/
+/public/uploads/odometros/
 
 # Repomix output (Archivos generados para la IA)
 repomix-output.*

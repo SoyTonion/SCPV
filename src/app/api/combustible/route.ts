@@ -22,15 +22,17 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const vehiculoId = formData.get('vehiculoId') as string;
     const kilometraje = formData.get('kilometraje') as string;
+    const kilometrajeOcr = formData.get('kilometrajeOcr') as string;
+    
     const litros = formData.get('litros') as string;
+    const litrosOcr = formData.get('litrosOcr') as string;
+    
     const importe = formData.get('importe') as string;
+    const importeOcr = formData.get('importeOcr') as string;
     const esExcepcionStr = formData.get('esExcepcion') as string;
     const esExcepcion = esExcepcionStr === 'true';
     const falsoPositivoStr = formData.get('falsoPositivo') as string;
     const falsoPositivo = falsoPositivoStr === 'true';
-    
-    // Si el chofer modifica el OCR, forzamos que se marque como excepción para que la Secretaria lo revise
-    const requiereRevisionManual = esExcepcion || falsoPositivo;
     
     const justificacionOriginal = formData.get('justificacion') as string | null;
     const justificacion = falsoPositivo 
@@ -39,9 +41,13 @@ export async function POST(request: Request) {
 
     const preautorizacionId = formData.get('preautorizacionId') as string | null;
     
-    // Evidencia puede venir como archivo File o texto base64, o nada
+    // Evidencia de Ticket
     const evidenciaFile = formData.get('evidencia') as File | null;
     const evidenciaBase64 = formData.get('evidenciaBase64') as string | null;
+
+    // Evidencia de Odómetro
+    const evidenciaOdometroFile = formData.get('evidenciaOdometro') as File | null;
+    const evidenciaOdometroBase64 = formData.get('evidenciaOdometroBase64') as string | null;
 
     // 3. Validación de Entrada (Input Validation)
     if (!vehiculoId || !kilometraje || !litros || !importe) {
@@ -66,19 +72,73 @@ export async function POST(request: Request) {
     }
 
     if (kilometrajeNuevo <= vehiculo.kilometrajeActual) {
-      return NextResponse.json({ error: `Fraude o error detectado: El kilometraje ingresado (${kilometrajeNuevo}) no puede ser menor o igual al actual (${vehiculo.kilometrajeActual}).` }, { status: 400 });
+      return NextResponse.json({ error: `Fraude o error detectado: El kilometraje ingresado (${kilometrajeNuevo}) no puede ser menor o igual al actual registrado (${vehiculo.kilometrajeActual}).` }, { status: 400 });
     }
 
-    // 5. Manejo de Evidencia Real (Guardado de Archivo)
-    let rutaEvidenciaFinal = "/uploads/ticket_placeholder.jpg"; // Fallback por si no envían nada (pruebas)
+    // 4.1. Detección de Sobrellenado de Tanque Físico
+    let alertaTanque = false;
+    let textoAlertaTanque = '';
+    if (vehiculo.capacidadTanque) {
+      const capTanqueNum = parseFloat(vehiculo.capacidadTanque.toString());
+      if (capTanqueNum > 0 && litrosSolicitados > capTanqueNum * 1.10) { // Margen de tolerancia del 10%
+        alertaTanque = true;
+        textoAlertaTanque = `[TIPO_D] SOBRECARGA_VOLUMETRICA (${litrosSolicitados} L en tanque de ${capTanqueNum} L)`;
+      }
+    }
+
+    // 4.2. Cálculo Automático de Rendimiento (km/L) entre cargas
+    const ultimaCargaPrevia = await prisma.registroCombustible.findFirst({
+      where: {
+        vehiculoId: vehiculoId,
+        estadoAprobacion: { in: ['APROBADA', 'PENDIENTE_REVISION'] }
+      },
+      orderBy: { fechaCarga: 'desc' }
+    });
+
+    let rendimientoCalculado: number | null = null;
+    let alertaRendimiento = false;
+    let textoAlertaRendimiento = '';
+
+    if (ultimaCargaPrevia && ultimaCargaPrevia.kilometraje) {
+      const kmRecorridos = kilometrajeNuevo - ultimaCargaPrevia.kilometraje;
+      if (kmRecorridos > 0 && litrosSolicitados > 0) {
+        rendimientoCalculado = parseFloat((kmRecorridos / litrosSolicitados).toFixed(2));
+
+        if (rendimientoCalculado < 3.0) {
+          alertaRendimiento = true;
+          textoAlertaRendimiento = `[TIPO_D] RENDIMIENTO_CRITICO_BAJO (${rendimientoCalculado} km/L con ${kmRecorridos} km recorridos)`;
+        } else if (rendimientoCalculado > 25.0) {
+          alertaRendimiento = true;
+          textoAlertaRendimiento = `[TIPO_D] RENDIMIENTO_IMPOSIBLE_ALTO (${rendimientoCalculado} km/L con ${kmRecorridos} km recorridos)`;
+        }
+      }
+    }
+
+    // Consolidación de Requerimiento de Auditoría
+    const requiereRevisionManual = esExcepcion || falsoPositivo || alertaTanque || alertaRendimiento;
+
+    // Construcción de la Justificación Integral
+    const alertasExtra = [textoAlertaTanque, textoAlertaRendimiento].filter(Boolean);
+    let justificacionFinal = justificacion || '';
+    if (alertasExtra.length > 0) {
+      justificacionFinal = `${alertasExtra.join(', ')} | ${justificacionFinal}`.trim();
+    }
+
+    // 5. Manejo de Evidencias Reales (Guardado de Archivos)
+    let rutaEvidenciaFinal = "/uploads/ticket_placeholder.jpg"; 
+    let rutaEvidenciaOdometroFinal = null;
+
     const uploadDir = join(process.cwd(), 'public', 'uploads', 'tickets');
+    const uploadDirOdo = join(process.cwd(), 'public', 'uploads', 'odometros');
     
     try {
-      await mkdir(uploadDir, { recursive: true }); // Crear carpeta si no existe
+      await mkdir(uploadDir, { recursive: true });
+      await mkdir(uploadDirOdo, { recursive: true });
     } catch (e) {
-      // Ignorar error si ya existe la carpeta
+      // Ignorar si ya existe
     }
 
+    // --- Guardar Ticket ---
     if (evidenciaFile && evidenciaFile.size > 0) {
       const bytes = await evidenciaFile.arrayBuffer();
       const buffer = Buffer.from(bytes);
@@ -87,13 +147,29 @@ export async function POST(request: Request) {
       await writeFile(filePath, buffer);
       rutaEvidenciaFinal = `/uploads/tickets/${fileName}`;
     } else if (evidenciaBase64) {
-      // Si la app móvil lo manda en base64
       const base64Data = evidenciaBase64.replace(/^data:image\/\w+;base64,/, "");
       const buffer = Buffer.from(base64Data, 'base64');
       const fileName = `ticket_${Date.now()}.jpg`;
       const filePath = join(uploadDir, fileName);
       await writeFile(filePath, buffer);
       rutaEvidenciaFinal = `/uploads/tickets/${fileName}`;
+    }
+
+    // --- Guardar Odómetro ---
+    if (evidenciaOdometroFile && evidenciaOdometroFile.size > 0) {
+      const bytes = await evidenciaOdometroFile.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+      const fileName = `odo_${Date.now()}_${evidenciaOdometroFile.name.replace(/[^a-zA-Z0-9.-]/g, '')}`;
+      const filePath = join(uploadDirOdo, fileName);
+      await writeFile(filePath, buffer);
+      rutaEvidenciaOdometroFinal = `/uploads/odometros/${fileName}`;
+    } else if (evidenciaOdometroBase64) {
+      const base64Data = evidenciaOdometroBase64.replace(/^data:image\/\w+;base64,/, "");
+      const buffer = Buffer.from(base64Data, 'base64');
+      const fileName = `odo_${Date.now()}.jpg`;
+      const filePath = join(uploadDirOdo, fileName);
+      await writeFile(filePath, buffer);
+      rutaEvidenciaOdometroFinal = `/uploads/odometros/${fileName}`;
     }
 
     // 6. Validación Estricta de Preautorización
@@ -130,13 +206,18 @@ export async function POST(request: Request) {
       prisma.registroCombustible.create({
         data: {
           vehiculoId: vehiculoId,
-          usuarioId: usuarioId, // Ahora es el usuario real
+          usuarioId: usuarioId,
           kilometraje: kilometrajeNuevo,
+          kilometrajeOcr: kilometrajeOcr ? parseInt(kilometrajeOcr) : null,
           litrosCargados: litrosSolicitados,
+          litrosOcr: litrosOcr ? parseFloat(litrosOcr) : null,
           costoTotal: costoTotal,
+          costoOcr: importeOcr ? parseFloat(importeOcr) : null,
           rutaEvidencia: rutaEvidenciaFinal,
+          rutaEvidenciaOdometro: rutaEvidenciaOdometroFinal,
+          rendimientoKmL: rendimientoCalculado,
           esExcepcion: requiereRevisionManual,
-          justificacion: justificacion || null,
+          justificacion: justificacionFinal || null,
           estadoAprobacion: estadoAprobacion,
           preautorizacionId: preautorizacionId || null
         }
@@ -175,7 +256,7 @@ export async function POST(request: Request) {
 }
 
 // ==========================================
-// 2. GET: Envía los datos reales al Dashboard
+// 2. GET: Envía los datos reales al Dashboard y Mesa de Control
 // ==========================================
 export async function GET(request: Request) {
   try {
@@ -184,17 +265,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
 
-    // Agregamos paginación defensiva para no tumbar la base de datos
     const { searchParams } = new URL(request.url);
     const limit = searchParams.get('limit');
-    const take = limit ? parseInt(limit) : 100; // Traer máximo 100 por defecto
+    const take = limit ? parseInt(limit) : 200;
 
     const registros = await prisma.registroCombustible.findMany({
       orderBy: { fechaCarga: 'desc' },
       take: take,
       include: { 
         vehiculo: true,
-        usuario: true // Traemos el usuario real que hizo la carga
+        usuario: true
       },
     });
 
@@ -202,9 +282,23 @@ export async function GET(request: Request) {
       ...r,
       id: r.id.toString(),
       fechaCarga: r.fechaCarga ? new Date(r.fechaCarga).toISOString() : null,
+      litrosCargados: Number(r.litrosCargados),
+      costoTotal: Number(r.costoTotal),
+      litrosOcr: r.litrosOcr ? Number(r.litrosOcr) : null,
+      costoOcr: r.costoOcr ? Number(r.costoOcr) : null,
+      rendimientoKmL: r.rendimientoKmL ? Number(r.rendimientoKmL) : null,
+      vehiculo: {
+        ...r.vehiculo,
+        capacidadTanque: r.vehiculo.capacidadTanque ? Number(r.vehiculo.capacidadTanque) : null,
+        limiteMensualLitros: r.vehiculo.limiteMensualLitros ? Number(r.vehiculo.limiteMensualLitros) : null
+      },
       usuario: r.usuario ? {
         id: r.usuario.id,
         nombre: r.usuario.nombre,
+        usuario: r.usuario.usuario,
+        telefono: r.usuario.telefono || 'Sin teléfono',
+        rpe: r.usuario.rpe || 'S/RPE',
+        email: r.usuario.email
       } : null
     }));
 
@@ -216,7 +310,7 @@ export async function GET(request: Request) {
 }
 
 // ==========================================
-// 3. PATCH: Actualiza el estado (Aprobar/Rechazar)
+// 3. PATCH: Actualiza el estado (Aprobar/Corregir/Rechazar)
 // ==========================================
 export async function PATCH(request: Request) {
   try {
@@ -224,40 +318,162 @@ export async function PATCH(request: Request) {
     if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
-    
-    // Aquí podrías agregar validación extra: if (session.user.rolName !== 'Administrador') return 403
 
     const body = await request.json();
-    const { id, estadoAprobacion } = body;
+    const { id, estadoAprobacion, kilometraje, litrosCargados, costoTotal, motivoRechazo } = body;
 
     if (!id || !estadoAprobacion) {
       return NextResponse.json({ error: 'Faltan datos obligatorios.' }, { status: 400 });
     }
 
-    let bigIntId;
+    let bigIntId: bigint;
     try {
       bigIntId = BigInt(id);
     } catch (e) {
       return NextResponse.json({ error: 'Formato de ID inválido.' }, { status: 400 });
     }
 
-    const registroActualizado = await prisma.registroCombustible.update({
-      where: { id: bigIntId }, 
-      data: { estadoAprobacion: estadoAprobacion }
+    // 1. Obtener el registro actual para conocer su estado previo y vehículo
+    const registroActual = await prisma.registroCombustible.findUnique({
+      where: { id: bigIntId },
+      include: { vehiculo: true }
     });
 
-    const registroSerializado = {
-      ...registroActualizado,
-      id: registroActualizado.id.toString(),
-      vehiculoId: registroActualizado.vehiculoId.toString()
-    };
+    if (!registroActual) {
+      return NextResponse.json({ error: 'Registro no encontrado.' }, { status: 404 });
+    }
 
-    return NextResponse.json({ 
-      success: true, 
-      registro: registroSerializado 
+    const dataToUpdate: any = { estadoAprobacion };
+
+    // ============================================================
+    // CASO A: RECHAZO DE LA AUDITORÍA (Fraude / Error Crítico)
+    // ============================================================
+    if (estadoAprobacion === 'RECHAZADA') {
+      const notaRechazo = motivoRechazo 
+        ? `[MOTIVO_RECHAZO]: ${motivoRechazo}`
+        : `[RECHAZADO_POR_AUDITORIA]`;
+      
+      dataToUpdate.justificacion = registroActual.justificacion
+        ? `${registroActual.justificacion} | ${notaRechazo}`
+        : notaRechazo;
+
+      // REVERSIÓN DE ODÓMETRO:
+      // Buscamos la última carga legítima APROBADA anterior para restaurar el kilometraje del vehículo
+      const ultimaCargaValida = await prisma.registroCombustible.findFirst({
+        where: {
+          vehiculoId: registroActual.vehiculoId,
+          id: { not: bigIntId },
+          estadoAprobacion: 'APROBADA'
+        },
+        orderBy: { fechaCarga: 'desc' }
+      });
+
+      const operaciones = [
+        prisma.registroCombustible.update({
+          where: { id: bigIntId },
+          data: dataToUpdate
+        })
+      ];
+
+      // Si encontramos una carga válida previa y el vehículo tenía el odómetro de este registro rechazado, lo revertimos
+      if (ultimaCargaValida && registroActual.vehiculo.kilometrajeActual === registroActual.kilometraje) {
+        operaciones.push(
+          prisma.vehiculo.update({
+            where: { id: registroActual.vehiculoId },
+            data: { kilometrajeActual: ultimaCargaValida.kilometraje }
+          }) as any
+        );
+      }
+
+      const [registroActualizado] = await prisma.$transaction(operaciones);
+
+      return NextResponse.json({
+        success: true,
+        registro: {
+          ...registroActualizado,
+          id: registroActualizado.id.toString(),
+          vehiculoId: registroActualizado.vehiculoId.toString()
+        },
+        mensaje: 'Registro rechazado exitosamente. Odómetro verificado y restaurado.'
+      });
+    }
+
+    // ============================================================
+    // CASO B: APROBACIÓN / CORRECCIÓN DE LA SECRETARÍA
+    // ============================================================
+    let huboCorreccion = false;
+
+    if (kilometraje !== undefined && parseInt(kilometraje) !== registroActual.kilometraje) {
+      dataToUpdate.kilometraje = parseInt(kilometraje);
+      huboCorreccion = true;
+    }
+
+    if (litrosCargados !== undefined && parseFloat(litrosCargados) !== Number(registroActual.litrosCargados)) {
+      dataToUpdate.litrosCargados = parseFloat(litrosCargados);
+      huboCorreccion = true;
+    }
+
+    if (costoTotal !== undefined && parseFloat(costoTotal) !== Number(registroActual.costoTotal)) {
+      dataToUpdate.costoTotal = parseFloat(costoTotal);
+      huboCorreccion = true;
+    }
+
+    if (huboCorreccion) {
+      const notaCorreccion = '[CORREGIDO_POR_SECRETARIA]';
+      dataToUpdate.justificacion = registroActual.justificacion
+        ? `${registroActual.justificacion} | ${notaCorreccion}`
+        : notaCorreccion;
+
+      // Recalcular rendimiento si se corrigieron km o litros
+      const kmFinal = dataToUpdate.kilometraje ?? registroActual.kilometraje;
+      const litrosFinal = dataToUpdate.litrosCargados ?? Number(registroActual.litrosCargados);
+      
+      const cargaPrevia = await prisma.registroCombustible.findFirst({
+        where: {
+          vehiculoId: registroActual.vehiculoId,
+          id: { not: bigIntId },
+          estadoAprobacion: 'APROBADA',
+          fechaCarga: { lte: registroActual.fechaCarga }
+        },
+        orderBy: { fechaCarga: 'desc' }
+      });
+
+      if (cargaPrevia && kmFinal > cargaPrevia.kilometraje && litrosFinal > 0) {
+        dataToUpdate.rendimientoKmL = parseFloat(((kmFinal - cargaPrevia.kilometraje) / litrosFinal).toFixed(2));
+      }
+    }
+
+    const operacionesAprobar = [
+      prisma.registroCombustible.update({
+        where: { id: bigIntId },
+        data: dataToUpdate
+      })
+    ];
+
+    // Si se modificó el kilometraje, actualizar el vehículo
+    if (dataToUpdate.kilometraje) {
+      operacionesAprobar.push(
+        prisma.vehiculo.update({
+          where: { id: registroActual.vehiculoId },
+          data: { kilometrajeActual: dataToUpdate.kilometraje }
+        }) as any
+      );
+    }
+
+    const [registroAprobado] = await prisma.$transaction(operacionesAprobar);
+
+    return NextResponse.json({
+      success: true,
+      registro: {
+        ...registroAprobado,
+        id: registroAprobado.id.toString(),
+        vehiculoId: registroAprobado.vehiculoId.toString()
+      },
+      mensaje: huboCorreccion ? 'Registro corregido y aprobado exitosamente.' : 'Registro aprobado.'
     });
+
   } catch (error) {
     console.error("Error al actualizar la petición:", error);
     return NextResponse.json({ error: 'Error al actualizar en la base de datos.' }, { status: 500 });
   }
-}
+}

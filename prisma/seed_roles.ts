@@ -26,6 +26,12 @@ async function main() {
     create: { nombreRol: 'OPERADOR' },
   });
 
+  const rolVerificador = await prisma.rol.upsert({
+    where: { nombreRol: 'VERIFICADOR' },
+    update: {},
+    create: { nombreRol: 'VERIFICADOR' },
+  });
+
   // 2. Encriptar la contraseña genérica ("Cfe.2026")
   const passwordHash = await bcrypt.hash('Cfe.2026', 10);
 
@@ -62,6 +68,18 @@ async function main() {
       usuario: 'operador_01',
       passwordHash: passwordHash,
       rolId: rolOperador.id,
+      activo: true,
+    },
+  });
+
+  await prisma.usuario.upsert({
+    where: { usuario: 'verificador_01' },
+    update: {},
+    create: {
+      nombre: 'Mesa de Control (Secretaría)',
+      usuario: 'verificador_01',
+      passwordHash: passwordHash,
+      rolId: rolVerificador.id,
       activo: true,
     },
   });

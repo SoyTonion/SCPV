@@ -13,7 +13,7 @@ async function main() {
   // ============================================================
   // ROLES
   // ============================================================
-  const [rolAdmin, rolSupervisor, rolGuardia] = await Promise.all([
+  const [rolAdmin, rolSupervisor, rolGuardia, rolVerificador] = await Promise.all([
     prisma.rol.upsert({
       where: { nombreRol: 'ADMIN' },
       update: {},
@@ -28,6 +28,11 @@ async function main() {
       where: { nombreRol: 'GUARDIA' },
       update: {},
       create: { nombreRol: 'GUARDIA' },
+    }),
+    prisma.rol.upsert({
+      where: { nombreRol: 'VERIFICADOR' },
+      update: {},
+      create: { nombreRol: 'VERIFICADOR' },
     }),
   ]);
   console.log('✅ Roles creados');
@@ -84,6 +89,20 @@ async function main() {
       usuario: 'jperez',
       passwordHash,
       rolId: rolSupervisor.id,
+      activo: true,
+    },
+  });
+
+  const verificador = await prisma.usuario.upsert({
+    where: { usuario: 'verificador' },
+    update: {},
+    create: {
+      nombre: 'Mesa de Control (Verificador)',
+      telefono: '5510000009',
+      email: 'verificador@empresa.com',
+      usuario: 'verificador',
+      passwordHash,
+      rolId: rolVerificador.id,
       activo: true,
     },
   });

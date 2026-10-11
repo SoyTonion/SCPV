@@ -391,9 +391,13 @@ model RegistroCombustible {
   fechaCarga DateTime @default(now()) @map("fecha_carga")
 
   kilometraje    Int
+  kilometrajeOcr Int?     @map("kilometraje_ocr")
   litrosCargados Decimal  @map("litros_cargados") @db.Decimal(6, 2)
+  litrosOcr      Decimal? @map("litros_ocr") @db.Decimal(6, 2)
   costoTotal     Decimal  @map("costo_total") @db.Decimal(8, 2)
+  costoOcr       Decimal? @map("costo_ocr") @db.Decimal(8, 2)
   rutaEvidencia  String   @map("ruta_evidencia") @db.VarChar(255)
+  rutaEvidenciaOdometro String? @map("ruta_evidencia_odometro") @db.VarChar(255)
   rendimientoKmL Decimal? @map("rendimiento_km_l") @db.Decimal(5, 2)
 
   // -- Lineamientos CFE: Trazabilidad de Excepciones y Autorizaciones (Punto 10.6) --
